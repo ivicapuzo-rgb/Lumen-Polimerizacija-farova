@@ -26,7 +26,7 @@ export type Booking = {
   longitude?: number | null;
   unit_price?: number;
   currency?: string;
-  status: "pending" | "confirmed" | "rejected";
+  status: "pending" | "confirmed" | "rejected" | "completed";
   created_at: string;
 };
 
@@ -40,12 +40,22 @@ export type BlockedDay = { date: string };
 export type Stats = {
   month: string;
   confirmed_count: number;
+  completed_count: number;
   pending_count: number;
   rejected_count: number;
   total_bookings: number;
   revenue: number;
   daily: { date: string; count: number; revenue: number }[];
   history: { month: string; count: number; revenue: number }[];
+};
+
+export type Report = {
+  period: "day" | "week" | "month";
+  start: string;
+  end: string;
+  count: number;
+  revenue: number;
+  bookings: Booking[];
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -117,7 +127,7 @@ export const adminListBookings = (password: string) =>
 export const adminUpdateBooking = (
   password: string,
   bookingId: string,
-  status: "confirmed" | "rejected" | "pending",
+  status: "confirmed" | "rejected" | "pending" | "completed",
 ) =>
   request<Booking>(`/admin/bookings/${bookingId}`, {
     method: "PATCH",
@@ -164,6 +174,16 @@ export const adminGetStats = (password: string, month: string) =>
   request<Stats>(`/admin/stats?month=${encodeURIComponent(month)}`, {
     headers: adminHeaders(password),
   });
+
+export const adminGetReport = (
+  password: string,
+  period: "day" | "week" | "month",
+  date?: string,
+) =>
+  request<Report>(
+    `/admin/report?period=${period}${date ? `&date=${encodeURIComponent(date)}` : ""}`,
+    { headers: adminHeaders(password) },
+  );
 
 // ---- Local storage helpers
 const PHONE_KEY = "lumen:last_phone";

@@ -21,6 +21,7 @@ import { colors } from "@/src/theme";
 const STATUS_META: Record<Booking["status"], { label: string; bg: string; fg: string; icon: string }> = {
   pending: { label: "Na čekanju", bg: colors.brandTertiary, fg: colors.onBrandTertiary, icon: "clock-outline" },
   confirmed: { label: "Potvrđeno", bg: "#0F3D18", fg: colors.success, icon: "check-decagram" },
+  completed: { label: "Završeno", bg: colors.brandPrimary, fg: colors.onBrandPrimary, icon: "check-all" },
   rejected: { label: "Odbijeno", bg: "#3D0F0F", fg: colors.error, icon: "close-circle-outline" },
 };
 

@@ -20,7 +20,10 @@
         "backgroundColor": "#000000"
       },
       "package": "com.emergent.headlampslots.fhvtsl",
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -49,7 +52,8 @@
         {
           "locationWhenInUsePermission": "Pošalji tačnu adresu za dolazak na lokaciju"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

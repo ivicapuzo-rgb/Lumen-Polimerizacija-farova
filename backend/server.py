@@ -215,7 +215,7 @@ async def admin_list_bookings(x_admin_password: Optional[str] = Header(default=N
 @api_router.patch("/admin/bookings/{booking_id}", response_model=Booking)
 async def admin_update_booking(booking_id: str, payload: BookingStatusUpdate, x_admin_password: Optional[str] = Header(default=None)):
     _check_admin(x_admin_password)
-    if payload.status not in ("pending", "confirmed", "rejected"):
+    if payload.status not in ("pending", "confirmed", "rejected", "completed"):
         raise HTTPException(status_code=400, detail="Neispravan status")
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
@@ -299,15 +299,17 @@ async def admin_stats(month: str, x_admin_password: Optional[str] = Header(defau
     month_bookings = await db.bookings.find(
         {"slot_date": {"$regex": f"^{month}-"}}, {"_id": 0}
     ).to_list(2000)
+    completed = [b for b in month_bookings if b.get("status") == "completed"]
     confirmed = [b for b in month_bookings if b.get("status") == "confirmed"]
     pending = [b for b in month_bookings if b.get("status") == "pending"]
     rejected = [b for b in month_bookings if b.get("status") == "rejected"]
 
-    revenue = sum(int(b.get("unit_price", 0) or 0) for b in confirmed)
+    earning_bookings = completed + confirmed
+    revenue = sum(int(b.get("unit_price", 0) or 0) for b in earning_bookings)
 
-    # Per day breakdown for current month
+    # Per day breakdown for current month (confirmed + completed)
     by_day: dict = {}
-    for b in confirmed:
+    for b in earning_bookings:
         d = b.get("slot_date", "")
         by_day.setdefault(d, {"count": 0, "revenue": 0})
         by_day[d]["count"] += 1
@@ -326,7 +328,7 @@ async def admin_stats(month: str, x_admin_password: Optional[str] = Header(defau
             y -= 1
         key = f"{y:04d}-{m:02d}"
         docs = await db.bookings.find(
-            {"slot_date": {"$regex": f"^{key}-"}, "status": "confirmed"}, {"_id": 0}
+            {"slot_date": {"$regex": f"^{key}-"}, "status": {"$in": ["confirmed", "completed"]}}, {"_id": 0}
         ).to_list(2000)
         history.append({
             "month": key,
@@ -337,12 +339,63 @@ async def admin_stats(month: str, x_admin_password: Optional[str] = Header(defau
     return {
         "month": month,
         "confirmed_count": len(confirmed),
+        "completed_count": len(completed),
         "pending_count": len(pending),
         "rejected_count": len(rejected),
         "total_bookings": len(month_bookings),
         "revenue": revenue,
         "daily": daily,
         "history": history,
+    }
+
+
+@api_router.get("/admin/report")
+async def admin_report(period: str, date: Optional[str] = None, x_admin_password: Optional[str] = Header(default=None)):
+    """period: day | week | month. Returns completed bookings for the range + summary."""
+    _check_admin(x_admin_password)
+    if period not in ("day", "week", "month"):
+        raise HTTPException(status_code=400, detail="period mora biti day, week ili month")
+
+    try:
+        ref = datetime.strptime(date, "%Y-%m-%d") if date else datetime.now()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date mora biti YYYY-MM-DD")
+
+    from datetime import timedelta
+
+    if period == "day":
+        start = ref.date()
+        end = start
+    elif period == "week":
+        # Monday as start of week
+        start = (ref - timedelta(days=ref.weekday())).date()
+        end = start + timedelta(days=6)
+    else:  # month
+        start = ref.replace(day=1).date()
+        # last day of the month
+        if start.month == 12:
+            end = start.replace(year=start.year + 1, month=1) - timedelta(days=1)
+        else:
+            end = start.replace(month=start.month + 1) - timedelta(days=1)
+
+    start_s = start.isoformat()
+    end_s = end.isoformat()
+
+    docs = await db.bookings.find(
+        {
+            "slot_date": {"$gte": start_s, "$lte": end_s},
+            "status": "completed",
+        },
+        {"_id": 0},
+    ).sort([("slot_date", 1), ("slot_time", 1)]).to_list(2000)
+
+    return {
+        "period": period,
+        "start": start_s,
+        "end": end_s,
+        "count": len(docs),
+        "revenue": sum(int(b.get("unit_price", 0) or 0) for b in docs),
+        "bookings": [Booking(**b).dict() for b in docs],
     }
 
 

@@ -26,6 +26,7 @@ import {
   adminDeleteAllBookings,
   adminDeleteAllSlots,
   adminDeleteSlot,
+  adminGetReport,
   adminGetStats,
   adminListBlocked,
   adminListBookings,
@@ -39,11 +40,14 @@ import {
   clearAdminPw,
   getSettings,
   loadAdminPw,
+  Report,
   saveAdminPw,
   Settings,
   Slot,
   Stats,
 } from "@/src/api";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { colors } from "@/src/theme";
 
 const HERO =
@@ -56,6 +60,7 @@ const qrForUrl = (url: string) =>
 const STATUS_META: Record<Booking["status"], { label: string; bg: string; fg: string }> = {
   pending: { label: "Na čekanju", bg: colors.brandTertiary, fg: colors.onBrandTertiary },
   confirmed: { label: "Potvrđeno", bg: "#0F3D18", fg: colors.success },
+  completed: { label: "Završeno", bg: colors.brandPrimary, fg: colors.onBrandPrimary },
   rejected: { label: "Odbijeno", bg: "#3D0F0F", fg: colors.error },
 };
 
@@ -466,6 +471,7 @@ function BookingsAdmin({ password }: { password: string }) {
   const FILTERS: { key: typeof filter; label: string }[] = [
     { key: "pending", label: "Na čekanju" },
     { key: "confirmed", label: "Potvrđeno" },
+    { key: "completed", label: "Završeno" },
     { key: "rejected", label: "Odbijeno" },
     { key: "all", label: "Sve" },
   ];
@@ -586,6 +592,18 @@ function BookingsAdmin({ password }: { password: string }) {
                     </Pressable>
                   </View>
                 )}
+                {item.status === "confirmed" && (
+                  <View style={styles.actionsRow}>
+                    <Pressable
+                      testID={`complete-${item.id}`}
+                      style={[styles.actionBtn, styles.completeBtn]}
+                      onPress={() => update(item.id, "completed")}
+                    >
+                      <Icon name="check-all" size={16} color={colors.onBrandPrimary} />
+                      <Text style={styles.completeText}>Štikliraj kao završeno</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             );
           }}
@@ -610,17 +628,100 @@ function formatMonth(key: string) {
   return `${MONTH_LABELS[m - 1]} ${y}`;
 }
 
+function buildReportHtml(r: Report): string {
+  const periodLabel: Record<"day" | "week" | "month", string> = {
+    day: "Dnevni izveštaj",
+    week: "Sedmični izveštaj",
+    month: "Mesečni izveštaj",
+  };
+  const rows = r.bookings
+    .map((b, i) => {
+      const home = b.home_visit ? "Da" : "Ne";
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${b.slot_date}<br/><span class="muted">${b.slot_time}</span></td>
+          <td>${escapeHtml(b.customer_name)}<br/><span class="muted">${escapeHtml(b.phone)}</span></td>
+          <td>${escapeHtml(b.car_brand)} ${escapeHtml(b.car_model)}</td>
+          <td>${home}</td>
+          <td class="right">${(b.unit_price || 0).toLocaleString("sr-RS")} ${b.currency || "RSD"}</td>
+        </tr>`;
+    })
+    .join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <style>
+      body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #0d0d0d; padding: 32px; }
+      h1 { color: #FF9800; margin: 0 0 6px 0; font-size: 26px; }
+      .sub { color: #666; margin-bottom: 24px; font-size: 13px; }
+      .kpis { display: flex; gap: 12px; margin-bottom: 24px; }
+      .kpi { flex: 1; padding: 16px; border-radius: 10px; border: 1px solid #e5e5e5; }
+      .kpi.brand { background: #FF9800; color: #121212; border-color: #FF9800; }
+      .kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; opacity: 0.7; }
+      .kpi .val { font-size: 24px; font-weight: 800; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { padding: 10px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+      th { background: #f5f5f5; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+      td.right, th.right { text-align: right; }
+      .muted { color: #888; font-size: 11px; }
+      .footer { margin-top: 32px; color: #999; font-size: 11px; text-align: center; }
+      .brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+      .logo-dot { width: 22px; height: 22px; border-radius: 6px; background: #FF9800; display: inline-block; }
+      .brand-name { font-weight: 800; letter-spacing: 2px; font-size: 14px; }
+    </style>
+    </head><body>
+      <div class="brand-row"><span class="logo-dot"></span><span class="brand-name">LUMEN</span></div>
+      <h1>${periodLabel[r.period]}</h1>
+      <div class="sub">Period: <b>${r.start}</b>${r.start !== r.end ? ` — <b>${r.end}</b>` : ""}</div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">Završeno kola</div><div class="val">${r.count}</div></div>
+        <div class="kpi brand"><div class="label">Ukupna zarada</div><div class="val">${r.revenue.toLocaleString("sr-RS")} RSD</div></div>
+      </div>
+      ${r.count > 0
+        ? `<table>
+             <thead><tr><th>#</th><th>Termin</th><th>Klijent</th><th>Vozilo</th><th>Kućna posetka</th><th class="right">Cena</th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`
+        : `<p class="muted">Nema završenih usluga u ovom periodu.</p>`
+      }
+      <div class="footer">Generisano: ${new Date().toLocaleString("sr-RS")} · Lumen — Čišćenje farova</div>
+    </body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function StatsAdmin({ password }: { password: string }) {
   const [month, setMonth] = useState<string>(() => toMonthKey(new Date()));
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [reportPeriod, setReportPeriod] = useState<"day" | "week" | "month">("day");
+  const [reportData, setReportData] = useState<Report | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfMsg, setPdfMsg] = useState<string | null>(null);
+
   const load = async (m: string) => {
     try {
       const s = await adminGetStats(password, m);
       setStats(s);
     } catch {}
+  };
+
+  const loadReport = async (period: "day" | "week" | "month") => {
+    setReportLoading(true);
+    try {
+      const r = await adminGetReport(password, period);
+      setReportData(r);
+    } catch {}
+    setReportLoading(false);
   };
 
   useEffect(() => {
@@ -631,6 +732,11 @@ function StatsAdmin({ password }: { password: string }) {
     })();
   }, [month]);
 
+  useEffect(() => {
+    loadReport(reportPeriod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportPeriod]);
+
   const shiftMonth = (delta: number) => {
     const [y, m] = month.split("-").map((n) => parseInt(n, 10));
     const d = new Date(y, m - 1 + delta, 1);
@@ -640,17 +746,121 @@ function StatsAdmin({ password }: { password: string }) {
   const onRefresh = async () => {
     setRefreshing(true);
     await load(month);
+    await loadReport(reportPeriod);
     setRefreshing(false);
+  };
+
+  const exportPdf = async () => {
+    if (!reportData) return;
+    setPdfBusy(true);
+    setPdfMsg(null);
+    try {
+      const html = buildReportHtml(reportData);
+      const { uri } = await Print.printToFileAsync({ html });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          UTI: "com.adobe.pdf",
+          dialogTitle: "Podeli izveštaj",
+        });
+      } else {
+        setPdfMsg(`PDF sačuvan: ${uri}`);
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setPdfMsg(e.message || "Greška prilikom eksportovanja");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const currency = stats?.daily.find(() => true) ? "RSD" : "RSD";
   const maxHistoryRevenue = Math.max(1, ...(stats?.history || []).map((h) => h.revenue));
+
+  const PERIOD_LABELS: Record<"day" | "week" | "month", string> = {
+    day: "Danas",
+    week: "Ova nedelja",
+    month: "Ovaj mesec",
+  };
 
   return (
     <ScrollView
       contentContainerStyle={styles.statsScroll}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
     >
+      {/* Report card */}
+      <View style={[styles.sectionCard, { marginTop: 0 }]}>
+        <View style={styles.settingsHeader}>
+          <Icon name="file-document-outline" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Izveštaj završenih usluga</Text>
+        </View>
+
+        <View style={styles.periodRow}>
+          {(["day", "week", "month"] as const).map((p) => (
+            <Pressable
+              key={p}
+              testID={`report-period-${p}`}
+              style={[styles.periodBtn, reportPeriod === p && styles.periodBtnActive]}
+              onPress={() => setReportPeriod(p)}
+            >
+              <Text style={[styles.periodBtnText, reportPeriod === p && styles.periodBtnTextActive]}>
+                {PERIOD_LABELS[p]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {reportLoading ? (
+          <View style={{ paddingVertical: 20, alignItems: "center" }}>
+            <ActivityIndicator color={colors.brandPrimary} />
+          </View>
+        ) : reportData ? (
+          <>
+            <Text style={styles.reportRange}>
+              {reportData.start === reportData.end
+                ? reportData.start
+                : `${reportData.start} — ${reportData.end}`}
+            </Text>
+
+            <View style={styles.reportKpis}>
+              <View style={styles.reportKpi}>
+                <Text style={styles.reportKpiLabel}>Završeno kola</Text>
+                <Text style={styles.reportKpiValue} testID="report-count">{reportData.count}</Text>
+              </View>
+              <View style={[styles.reportKpi, styles.reportKpiHighlight]}>
+                <Text style={styles.reportKpiLabelHi}>Zarada</Text>
+                <Text style={styles.reportKpiValueHi} testID="report-revenue">
+                  {reportData.revenue.toLocaleString("sr-RS")} RSD
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              testID="export-pdf-btn"
+              style={[styles.saveBtn, { marginTop: 12 }]}
+              onPress={exportPdf}
+              disabled={pdfBusy || reportData.count === 0}
+            >
+              {pdfBusy ? (
+                <ActivityIndicator color={colors.onBrandPrimary} />
+              ) : (
+                <>
+                  <Icon name="file-pdf-box" size={20} color={colors.onBrandPrimary} />
+                  <Text style={styles.saveBtnText}>Preuzmi PDF izveštaj</Text>
+                </>
+              )}
+            </Pressable>
+            {pdfMsg ? <Text style={styles.errorInline}>{pdfMsg}</Text> : null}
+            {reportData.count === 0 ? (
+              <Text style={[styles.settingsHint, { marginTop: 10, textAlign: "center" }]}>
+                Nema završenih usluga za odabrani period.
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </View>
       <View style={styles.monthNav}>
         <Pressable testID="stats-prev-month" style={styles.monthNavBtn} onPress={() => shiftMonth(-1)}>
           <Icon name="chevron-left" size={22} color={colors.onSurface} />
@@ -681,19 +891,19 @@ function StatsAdmin({ password }: { password: string }) {
 
           <View style={styles.kpiRow}>
             <View style={styles.kpiCard}>
-              <Icon name="check-decagram" size={18} color={colors.success} />
+              <Icon name="check-all" size={18} color={colors.brandPrimary} />
               <Text style={styles.kpiLabel}>Završeno</Text>
+              <Text style={styles.kpiValue} testID="stats-completed">{stats.completed_count}</Text>
+            </View>
+            <View style={styles.kpiCard}>
+              <Icon name="check-decagram" size={18} color={colors.success} />
+              <Text style={styles.kpiLabel}>Potvrđeno</Text>
               <Text style={styles.kpiValue} testID="stats-confirmed">{stats.confirmed_count}</Text>
             </View>
             <View style={styles.kpiCard}>
-              <Icon name="clock-outline" size={18} color={colors.brandPrimary} />
-              <Text style={styles.kpiLabel}>Na čekanju</Text>
+              <Icon name="clock-outline" size={18} color={colors.brandSecondary} />
+              <Text style={styles.kpiLabel}>Čeka</Text>
               <Text style={styles.kpiValue}>{stats.pending_count}</Text>
-            </View>
-            <View style={styles.kpiCard}>
-              <Icon name="close-circle-outline" size={18} color={colors.error} />
-              <Text style={styles.kpiLabel}>Odbijeno</Text>
-              <Text style={styles.kpiValue}>{stats.rejected_count}</Text>
             </View>
           </View>
 
@@ -1254,6 +1464,8 @@ const styles = StyleSheet.create({
   confirmBtn: { backgroundColor: colors.success },
   rejectText: { color: colors.onError, fontWeight: "700" },
   confirmText: { color: colors.onSuccess, fontWeight: "700" },
+  completeBtn: { backgroundColor: colors.brandPrimary },
+  completeText: { color: colors.onBrandPrimary, fontWeight: "800" },
   homeVisitBlock: {
     marginTop: 10,
     padding: 10,
@@ -1491,4 +1703,33 @@ const styles = StyleSheet.create({
   dailyRevenue: { color: colors.brandPrimary, fontWeight: "800", fontSize: 14 },
   emptyStats: { color: colors.onSurface, fontSize: 15, fontWeight: "700", marginTop: 8 },
   emptyStatsSub: { color: colors.muted, fontSize: 12, textAlign: "center", marginTop: 4, lineHeight: 18 },
+  // Report
+  periodRow: {
+    flexDirection: "row",
+    marginTop: 10,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  periodBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+  periodBtnActive: { backgroundColor: colors.brandPrimary },
+  periodBtnText: { color: colors.onSurfaceTertiary, fontSize: 13, fontWeight: "700" },
+  periodBtnTextActive: { color: colors.onBrandPrimary },
+  reportRange: { color: colors.muted, fontSize: 12, marginTop: 10, textAlign: "center", fontWeight: "600" },
+  reportKpis: { flexDirection: "row", gap: 10, marginTop: 10 },
+  reportKpi: {
+    flex: 1,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reportKpiHighlight: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
+  reportKpiLabel: { color: colors.muted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  reportKpiLabelHi: { color: colors.onBrandPrimary, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  reportKpiValue: { color: colors.onSurface, fontSize: 22, fontWeight: "800", marginTop: 4 },
+  reportKpiValueHi: { color: colors.onBrandPrimary, fontSize: 22, fontWeight: "800", marginTop: 4 },
 });
