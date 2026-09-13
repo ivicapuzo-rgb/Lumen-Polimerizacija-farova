@@ -5,6 +5,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -17,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 
-import { listSlots, Slot } from "@/src/api";
+import { listSlots, getSettings, Slot } from "@/src/api";
 import { colors } from "@/src/theme";
 
 const HERO =
@@ -40,6 +41,11 @@ export default function SlotsScreen() {
     queryFn: listSlots,
   });
 
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+  });
+
   const grouped = useMemo(() => {
     const map = new Map<string, Slot[]>();
     (data || []).forEach((s) => {
@@ -52,6 +58,17 @@ export default function SlotsScreen() {
   const handleSelect = (slot: Slot) => {
     Haptics.selectionAsync();
     router.push({ pathname: "/booking/[slotId]", params: { slotId: slot.id, date: slot.date, time: slot.time } });
+  };
+
+  const handleShare = async () => {
+    const priceLine = settings
+      ? `Cena je ${settings.price.toLocaleString("sr-RS")} ${settings.currency} po vozilu.`
+      : "";
+    try {
+      await Share.share({
+        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.`,
+      });
+    } catch {}
   };
 
   return (
@@ -72,6 +89,20 @@ export default function SlotsScreen() {
           </View>
           <Text style={styles.heroTitle}>Čišćenje farova</Text>
           <Text style={styles.heroSubtitle}>Izaberi slobodan termin i zakaži za par sekundi</Text>
+          {settings ? (
+            <View style={styles.heroBottomRow}>
+              <View style={styles.pricePill} testID="price-pill">
+                <Icon name="tag-outline" size={14} color={colors.onBrandPrimary} />
+                <Text style={styles.pricePillText}>
+                  {settings.price.toLocaleString("sr-RS")} {settings.currency} po vozilu
+                </Text>
+              </View>
+              <Pressable testID="home-share-btn" style={styles.sharePillBtn} onPress={handleShare}>
+                <Icon name="share-variant" size={14} color={colors.onSurface} />
+                <Text style={styles.sharePillText}>Preporuči</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -145,7 +176,7 @@ export default function SlotsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  hero: { height: 220, width: "100%", overflow: "hidden" },
+  hero: { height: 260, width: "100%", overflow: "hidden" },
   heroContent: { flex: 1, paddingHorizontal: 20, justifyContent: "flex-end", paddingBottom: 20 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
   brandDot: {
@@ -159,6 +190,29 @@ const styles = StyleSheet.create({
   brandName: { color: colors.onSurface, fontSize: 16, fontWeight: "800", letterSpacing: 2 },
   heroTitle: { color: colors.onSurface, fontSize: 30, fontWeight: "800", letterSpacing: -0.5 },
   heroSubtitle: { color: colors.onSurfaceTertiary, fontSize: 14, marginTop: 6 },
+  pricePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.brandPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  pricePillText: { color: colors.onBrandPrimary, fontSize: 13, fontWeight: "800" },
+  heroBottomRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
+  sharePillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderColor: colors.borderStrong,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  sharePillText: { color: colors.onSurface, fontSize: 12, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   errorText: { color: colors.error, fontSize: 14, marginBottom: 12 },
   retryBtn: {

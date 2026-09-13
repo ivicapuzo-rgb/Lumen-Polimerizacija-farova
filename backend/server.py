@@ -78,6 +78,25 @@ class AdminLogin(BaseModel):
     password: str
 
 
+class Settings(BaseModel):
+    price: int = 2500
+    currency: str = "RSD"
+
+
+class SettingsUpdate(BaseModel):
+    price: Optional[int] = None
+    currency: Optional[str] = None
+
+
+async def get_settings_doc() -> Settings:
+    doc = await db.settings.find_one({"_id": "singleton"})
+    if not doc:
+        s = Settings()
+        await db.settings.insert_one({"_id": "singleton", **s.dict()})
+        return s
+    return Settings(price=doc.get("price", 2500), currency=doc.get("currency", "RSD"))
+
+
 # ============= Helpers =============
 def _check_admin(password: Optional[str]):
     if not password or password != ADMIN_PASSWORD:
@@ -95,6 +114,11 @@ async def list_slots(only_available: bool = True):
     query = {"is_booked": False} if only_available else {}
     docs = await db.slots.find(query, {"_id": 0}).sort([("date", 1), ("time", 1)]).to_list(1000)
     return [Slot(**d) for d in docs]
+
+
+@api_router.get("/settings", response_model=Settings)
+async def get_settings():
+    return await get_settings_doc()
 
 
 @api_router.post("/bookings", response_model=Booking)
@@ -188,6 +212,38 @@ async def admin_update_booking(booking_id: str, payload: BookingStatusUpdate, x_
         await db.slots.update_one({"id": booking["slot_id"]}, {"$set": {"is_booked": False}})
     booking["status"] = payload.status
     return Booking(**booking)
+
+
+@api_router.patch("/admin/settings", response_model=Settings)
+async def admin_update_settings(payload: SettingsUpdate, x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    updates = {}
+    if payload.price is not None:
+        if payload.price < 0:
+            raise HTTPException(status_code=400, detail="Cena ne može biti negativna")
+        updates["price"] = int(payload.price)
+    if payload.currency is not None:
+        updates["currency"] = payload.currency.strip() or "RSD"
+    if updates:
+        await db.settings.update_one({"_id": "singleton"}, {"$set": updates}, upsert=True)
+    return await get_settings_doc()
+
+
+@api_router.delete("/admin/bookings")
+async def admin_delete_all_bookings(x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    res = await db.bookings.delete_many({})
+    # Free all slots
+    await db.slots.update_many({}, {"$set": {"is_booked": False}})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+@api_router.delete("/admin/slots")
+async def admin_delete_all_slots(x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    res_slots = await db.slots.delete_many({})
+    res_book = await db.bookings.delete_many({})
+    return {"ok": True, "slots_deleted": res_slots.deleted_count, "bookings_deleted": res_book.deleted_count}
 
 
 app.include_router(api_router)

@@ -22,15 +22,20 @@ import * as Haptics from "expo-haptics";
 
 import {
   adminCreateSlot,
+  adminDeleteAllBookings,
+  adminDeleteAllSlots,
   adminDeleteSlot,
   adminListBookings,
   adminListSlots,
   adminLogin,
   adminUpdateBooking,
+  adminUpdateSettings,
   Booking,
   clearAdminPw,
+  getSettings,
   loadAdminPw,
   saveAdminPw,
+  Settings,
   Slot,
 } from "@/src/api";
 import { colors } from "@/src/theme";
@@ -55,7 +60,7 @@ export default function AdminScreen() {
   const [authed, setAuthed] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [tab, setTab] = useState<"slots" | "bookings">("bookings");
+  const [tab, setTab] = useState<"slots" | "bookings" | "settings">("bookings");
 
   useEffect(() => {
     loadAdminPw().then((pw) => {
@@ -174,9 +179,22 @@ export default function AdminScreen() {
         >
           <Text style={[styles.tabText, tab === "slots" && styles.tabTextActive]}>Termini</Text>
         </Pressable>
+        <Pressable
+          testID="admin-tab-settings"
+          style={[styles.tab, tab === "settings" && styles.tabActive]}
+          onPress={() => setTab("settings")}
+        >
+          <Text style={[styles.tabText, tab === "settings" && styles.tabTextActive]}>Podešavanja</Text>
+        </Pressable>
       </View>
 
-      {tab === "slots" ? <SlotsAdmin password={password} /> : <BookingsAdmin password={password} />}
+      {tab === "slots" ? (
+        <SlotsAdmin password={password} />
+      ) : tab === "bookings" ? (
+        <BookingsAdmin password={password} />
+      ) : (
+        <SettingsAdmin password={password} />
+      )}
     </View>
   );
 }
@@ -553,6 +571,189 @@ function BookingsAdmin({ password }: { password: string }) {
   );
 }
 
+// ============= Settings Admin =============
+function SettingsAdmin({ password }: { password: string }) {
+  const insets = useSafeAreaInsets();
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [price, setPrice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirmType, setConfirmType] = useState<null | "bookings" | "slots">(null);
+  const [wiping, setWiping] = useState(false);
+  const [wipeResult, setWipeResult] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const s = await getSettings();
+      setSettings(s);
+      setPrice(String(s.price));
+    } catch {}
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const savePrice = async () => {
+    setErr(null);
+    setSaved(false);
+    const n = parseInt(price.replace(/\D/g, ""), 10);
+    if (!Number.isFinite(n) || n < 0) {
+      setErr("Unesi ispravan iznos");
+      return;
+    }
+    setSaving(true);
+    try {
+      const s = await adminUpdateSettings(password, { price: n });
+      setSettings(s);
+      setSaved(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setErr(e.message || "Greška");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const performWipe = async () => {
+    if (!confirmType) return;
+    setWiping(true);
+    setWipeResult(null);
+    try {
+      if (confirmType === "bookings") {
+        const r = await adminDeleteAllBookings(password);
+        setWipeResult(`Obrisano rezervacija: ${r.deleted}`);
+      } else {
+        const r = await adminDeleteAllSlots(password);
+        setWipeResult(`Obrisano termina: ${r.slots_deleted} · rezervacija: ${r.bookings_deleted}`);
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setWipeResult(e.message || "Greška");
+    } finally {
+      setWiping(false);
+      setConfirmType(null);
+    }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.settingsScroll}>
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="tag-outline" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Cena poliranja</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Ova cena se prikazuje klijentu na naslovnoj strani i pri zakazivanju.
+        </Text>
+        <Text style={styles.label}>Iznos ({settings?.currency || "RSD"})</Text>
+        <TextInput
+          testID="price-input"
+          style={styles.priceInput}
+          value={price}
+          onChangeText={setPrice}
+          keyboardType="numeric"
+          placeholder="2500"
+          placeholderTextColor={colors.muted}
+        />
+        {err ? <Text style={styles.errorInline}>{err}</Text> : null}
+        {saved ? <Text style={styles.successInline}>Sačuvano ✓</Text> : null}
+        <Pressable
+          testID="save-price-btn"
+          style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.85 }]}
+          onPress={savePrice}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color={colors.onBrandPrimary} />
+          ) : (
+            <>
+              <Icon name="content-save-outline" size={18} color={colors.onBrandPrimary} />
+              <Text style={styles.saveBtnText}>Sačuvaj cenu</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+
+      <View style={[styles.settingsCard, styles.dangerCard]}>
+        <View style={styles.settingsHeader}>
+          <Icon name="alert-circle-outline" size={22} color={colors.error} />
+          <Text style={[styles.settingsTitle, { color: colors.error }]}>Opasna zona</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Ove akcije trajno brišu podatke. Preporuka: koristi samo kada želiš da počneš iz početka.
+        </Text>
+
+        {wipeResult ? (
+          <View style={styles.wipeResult}>
+            <Icon name="information-outline" size={16} color={colors.onSurfaceSecondary} />
+            <Text style={styles.wipeResultText}>{wipeResult}</Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          testID="wipe-bookings-btn"
+          style={styles.dangerBtn}
+          onPress={() => setConfirmType("bookings")}
+        >
+          <Icon name="delete-sweep-outline" size={18} color={colors.onError} />
+          <Text style={styles.dangerBtnText}>Obriši sve rezervacije</Text>
+        </Pressable>
+
+        <Pressable
+          testID="wipe-all-btn"
+          style={[styles.dangerBtn, { backgroundColor: "#7A1B1B" }]}
+          onPress={() => setConfirmType("slots")}
+        >
+          <Icon name="delete-forever-outline" size={18} color={colors.onError} />
+          <Text style={styles.dangerBtnText}>Obriši sve (termini + rezervacije)</Text>
+        </Pressable>
+      </View>
+
+      <Modal visible={!!confirmType} transparent animationType="fade" onRequestClose={() => setConfirmType(null)}>
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmCard, { marginBottom: insets.bottom }]}>
+            <View style={styles.confirmIcon}>
+              <Icon name="alert-outline" size={32} color={colors.error} />
+            </View>
+            <Text style={styles.confirmTitle}>Sigurno želiš da nastaviš?</Text>
+            <Text style={styles.confirmSub}>
+              {confirmType === "bookings"
+                ? "Sve rezervacije će biti trajno obrisane. Termini će biti oslobođeni."
+                : "Svi termini i sve rezervacije biće trajno obrisane."}
+            </Text>
+            <View style={styles.confirmRow}>
+              <Pressable
+                testID="confirm-cancel"
+                style={[styles.confirmModalBtn, styles.confirmCancel]}
+                onPress={() => setConfirmType(null)}
+                disabled={wiping}
+              >
+                <Text style={styles.confirmCancelText}>Otkaži</Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-wipe"
+                style={[styles.confirmModalBtn, styles.confirmDelete]}
+                onPress={performWipe}
+                disabled={wiping}
+              >
+                {wiping ? (
+                  <ActivityIndicator color={colors.onError} />
+                ) : (
+                  <Text style={styles.confirmDeleteText}>Obriši</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   loginHero: { height: 260 },
@@ -757,4 +958,102 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   mapsLinkText: { color: colors.onBrandPrimary, fontSize: 12, fontWeight: "800" },
+  // Settings tab
+  settingsScroll: { padding: 16, paddingBottom: 40, gap: 16 },
+  settingsCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    gap: 8,
+  },
+  dangerCard: { borderColor: "#5A1F1F" },
+  settingsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  settingsTitle: { color: colors.onSurface, fontSize: 16, fontWeight: "800" },
+  settingsHint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  priceInput: {
+    backgroundColor: colors.surfaceTertiary,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    color: colors.onSurface,
+    padding: 14,
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  successInline: { color: colors.success, fontSize: 13, marginTop: 4, fontWeight: "700" },
+  saveBtn: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveBtnText: { color: colors.onBrandPrimary, fontSize: 15, fontWeight: "800" },
+  dangerBtn: {
+    marginTop: 10,
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: colors.error,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dangerBtnText: { color: colors.onError, fontSize: 14, fontWeight: "800" },
+  wipeResult: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  wipeResultText: { color: colors.onSurfaceSecondary, fontSize: 13, flex: 1 },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  confirmCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10,
+  },
+  confirmIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#3D0F0F",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  confirmTitle: { color: colors.onSurface, fontSize: 18, fontWeight: "800", textAlign: "center" },
+  confirmSub: { color: colors.muted, fontSize: 13, textAlign: "center", lineHeight: 18 },
+  confirmRow: { flexDirection: "row", gap: 10, marginTop: 12, alignSelf: "stretch" },
+  confirmModalBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancel: { backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border },
+  confirmCancelText: { color: colors.onSurface, fontWeight: "700" },
+  confirmDelete: { backgroundColor: colors.error },
+  confirmDeleteText: { color: colors.onError, fontWeight: "800" },
 });

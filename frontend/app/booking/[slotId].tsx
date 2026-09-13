@@ -8,6 +8,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -16,12 +17,12 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 
-import { createBooking, savePhone } from "@/src/api";
+import { createBooking, getSettings, savePhone } from "@/src/api";
 import { CAR_BRANDS } from "@/src/carBrands";
 import { colors } from "@/src/theme";
 
@@ -35,6 +36,19 @@ export default function BookingForm() {
   const router = useRouter();
   const qc = useQueryClient();
   const { slotId, date, time } = useLocalSearchParams<{ slotId: string; date: string; time: string }>();
+
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+
+  const shareApp = async () => {
+    const priceLine = settings
+      ? `Cena je ${settings.price.toLocaleString("sr-RS")} ${settings.currency} po vozilu.`
+      : "";
+    try {
+      await Share.share({
+        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.`,
+      });
+    } catch {}
+  };
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -141,8 +155,16 @@ export default function BookingForm() {
           </View>
           <Text style={styles.successTitle}>Rezervacija poslata!</Text>
           <Text style={styles.successSub}>
-            Termin {time} · {formatDate(date!)} čeka potvrdu.{"\n"}Status možeš pratiti u sekciji "Moje".
+            Termin {time} · {formatDate(date!)} čeka potvrdu.{"\n"}Status možeš pratiti u sekciji &quot;Moje&quot;.
           </Text>
+          <Pressable
+            testID="share-app-btn"
+            style={styles.shareBtn}
+            onPress={shareApp}
+          >
+            <Icon name="share-variant" size={18} color={colors.onBrandPrimary} />
+            <Text style={styles.shareBtnText}>Preporuči prijatelju</Text>
+          </Pressable>
           <Pressable
             testID="booking-done-btn"
             style={styles.primaryBtn}
@@ -178,11 +200,16 @@ export default function BookingForm() {
           <View style={styles.slotBannerIcon}>
             <Icon name="clock-time-four-outline" size={22} color={colors.brandPrimary} />
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.slotBannerLabel}>Izabran termin</Text>
             <Text style={styles.slotBannerValue}>
               {formatDate(date!)} · {time}
             </Text>
+            {settings ? (
+              <Text style={styles.slotBannerPrice}>
+                Cena: {settings.price.toLocaleString("sr-RS")} {settings.currency}
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -459,6 +486,7 @@ const styles = StyleSheet.create({
   },
   slotBannerLabel: { color: colors.onBrandTertiary, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   slotBannerValue: { color: colors.onBrandTertiary, fontSize: 16, fontWeight: "800", marginTop: 2 },
+  slotBannerPrice: { color: colors.onBrandTertiary, fontSize: 13, fontWeight: "700", marginTop: 6 },
   label: { color: colors.muted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
   input: {
     backgroundColor: colors.surfaceSecondary,
@@ -602,6 +630,19 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   primaryBtnText: { color: colors.onBrandPrimary, fontSize: 15, fontWeight: "800" },
+  shareBtn: {
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: colors.brandSecondary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+    marginBottom: 10,
+  },
+  shareBtnText: { color: colors.onBrandSecondary, fontSize: 15, fontWeight: "800" },
   secondaryBtn: { paddingVertical: 12 },
   secondaryBtnText: { color: colors.muted, fontSize: 14, fontWeight: "600" },
 });

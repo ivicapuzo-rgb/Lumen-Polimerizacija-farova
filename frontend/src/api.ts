@@ -28,6 +28,11 @@ export type Booking = {
   created_at: string;
 };
 
+export type Settings = {
+  price: number;
+  currency: string;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}/api${path}`, {
     ...options,
@@ -63,6 +68,8 @@ export const createBooking = (payload: {
 }) => request<Booking>("/bookings", { method: "POST", body: JSON.stringify(payload) });
 export const bookingsByPhone = (phone: string) =>
   request<Booking[]>(`/bookings/phone/${encodeURIComponent(phone)}`);
+
+export const getSettings = () => request<Settings>("/settings");
 
 // ---- Admin
 export const adminLogin = (password: string) =>
@@ -101,6 +108,25 @@ export const adminUpdateBooking = (
     method: "PATCH",
     headers: adminHeaders(password),
     body: JSON.stringify({ status }),
+  });
+
+export const adminUpdateSettings = (password: string, payload: Partial<Settings>) =>
+  request<Settings>("/admin/settings", {
+    method: "PATCH",
+    headers: adminHeaders(password),
+    body: JSON.stringify(payload),
+  });
+
+export const adminDeleteAllBookings = (password: string) =>
+  request<{ ok: boolean; deleted: number }>("/admin/bookings", {
+    method: "DELETE",
+    headers: adminHeaders(password),
+  });
+
+export const adminDeleteAllSlots = (password: string) =>
+  request<{ ok: boolean; slots_deleted: number; bookings_deleted: number }>("/admin/slots", {
+    method: "DELETE",
+    headers: adminHeaders(password),
   });
 
 // ---- Local storage helpers
