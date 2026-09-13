@@ -1,0 +1,158 @@
+{
+  "app_name": "Lumen Service",
+  "personality": "7 Dark-First Utility DARK",
+  "personality_one_liner": "A sleek, command-center aesthetic for fast slot booking, using deep carbon tones and amber accents to evoke the warm glow of clean headlights.",
+  "color": {
+    "surface": "#0D0D0D",
+    "onSurface": "#F5F5F5",
+    "surfaceSecondary": "#1A1A1A",
+    "onSurfaceSecondary": "#E0E0E0",
+    "surfaceTertiary": "#262626",
+    "onSurfaceTertiary": "#CCCCCC",
+    "surfaceInverse": "#F5F5F5",
+    "onSurfaceInverse": "#0D0D0D",
+    "brand": "#FFB020",
+    "onBrand": "#121212",
+    "brandPrimary": "#FF9800",
+    "onBrandPrimary": "#121212",
+    "brandSecondary": "#F57C00",
+    "onBrandSecondary": "#121212",
+    "brandTertiary": "#4A3110",
+    "onBrandTertiary": "#FFB020",
+    "success": "#388E3C",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F57C00",
+    "onWarning": "#121212",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "info": "#757575",
+    "onInfo": "#FFFFFF",
+    "border": "#262626",
+    "borderStrong": "#404040",
+    "divider": "#1F1F1F",
+    "muted": "#858585"
+  },
+  "typography": {
+    "displayFontFamily": "Barlow Condensed",
+    "textFontFamily": "Satoshi",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous intentional padding. Content must never touch screen edges. Sticky primary buttons must float cleanly above the safe area with a translucent backdrop.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [
+      "Use strict solid surface separation (surfaceSecondary, dividers) rather than blur, matching the Dark-First Utility command-center feel."
+    ],
+    "dont's": [
+      "Avoid heavy blur or glass effects. The app should feel tactile, fast, and mechanical."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Available Slots (Home)",
+      "purpose": "Allow users to instantly see open headlight cleaning slots and tap to book.",
+      "states": {
+        "loading": "Centered brand-colored activity indicator.",
+        "empty": "Abstract amber light background with 'No available slots right now' text and a check back later CTA.",
+        "error": "Error message with a 'Retry' button."
+      },
+      "layout": "Hero image at the top (car headlight) covered by a top-to-bottom dark gradient scrim. Below it, a segmented control or date picker, followed by a grid of available time slots (surfaceSecondary cards with brandTertiary active states)."
+    },
+    {
+      "name": "Booking Form",
+      "purpose": "Capture name, phone, car make/model, and notes to reserve the selected slot.",
+      "states": {
+        "loading": "Submitting spinner inside the sticky CTA.",
+        "empty": "N/A",
+        "error": "Inline field errors with red borders/text."
+      },
+      "layout": "Single-column scrollable form. Labels above inputs. Car brand/model use a bottom sheet selector. The 'Confirm Booking' button MUST be sticky at the bottom of the screen above the home indicator, outside the scrollview."
+    },
+    {
+      "name": "My Bookings",
+      "purpose": "Users can view the status of their booked appointments without logging in (stored locally or via phone lookup).",
+      "states": {
+        "loading": "List skeleton.",
+        "empty": "Illustration/icon of an empty calendar, 'You have no recent bookings.'",
+        "error": "Failed to load bookings, retry button."
+      },
+      "layout": "Vertical list of cards. Each card displays date, time, car details, and a high-contrast status badge (Amber/Warning for pending, Green/Success for confirmed, Red/Error for rejected). Cards use 100% width minus layout margins."
+    },
+    {
+      "name": "Admin Dashboard",
+      "purpose": "Command center for the owner to manage slots and confirm/reject pending bookings.",
+      "states": {
+        "loading": "Loading dashboard data.",
+        "empty": "No pending bookings or upcoming slots.",
+        "error": "Failed to sync, manual refresh CTA."
+      },
+      "layout": "Requires a password overlay on first entry. Uses a top-tab or segmented control to switch between 'Manage Slots' (create new available times) and 'Requests' (approve/reject). Tactical, data-dense list rows for easy scanning."
+    }
+  ],
+  "images": {
+    "home_hero": {
+      "url": "https://images.unsplash.com/photo-1730742298439-6d82f9edc3c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHxjYXIlMjBoZWFkbGlnaHQlMjBkYXJrfGVufDB8fHx8MTc4OTI4NDIwM3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "A close up of a glowing car headlight in the dark"
+    },
+    "admin_header": {
+      "url": "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwyfHxzcG9ydHMlMjBjYXIlMjBkYXJrJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODkyODQyMDN8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Parked black sports car in dark environment"
+    },
+    "empty_state": {
+      "url": "https://images.unsplash.com/photo-1687392946855-8e35efa25ad7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGFtYmVyJTIwbGlnaHQlMjBkYXJrfGVufDB8fHx8fDE3ODkyODQyMTN8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract amber light shapes against a dark background"
+    }
+  },
+  "haptics": {
+    "button_press": "impactLight",
+    "tab_switch": "selection",
+    "slot_selection": "selection",
+    "booking_confirm": "notificationSuccess",
+    "admin_approve_reject": "impactMedium"
+  },
+  "instructions_to_main_agent": [
+    "Design Identity: STRICTLY stick to the Dark-First Utility aesthetic. Use obsidian/carbon bases with deep amber accents (brand: #FF9800) to evoke automotive headlight glow. ALL BLUES ARE BANNED.",
+    "Form Layout: The primary 'Confirm Booking' button MUST be anchored sticky at the bottom of the screen using KeyboardAvoidingView. Content flows behind it.",
+    "Hero Images: When placing text over the 'home_hero' or 'admin_header' images, you MUST use a vertical 3-stop expo-linear-gradient scrim going from transparent to #0D0D0D (surface) at 80%+ opacity at the bottom. Never render raw text directly on photos.",
+    "Card Layout: List items and booking cards must span 100% of the horizontal space (minus the container's lateral padding). Avoid half-width left-clustered cards.",
+    "Interactions: Make slot selection and status changes fast and tactile. Connect the haptics block strictly to button presses and state changes.",
+    "Typography: Use Barlow Condensed for numerical data, metrics, timeslots, and main headers. Use Satoshi for body text and input values.",
+    "Admin Access: Build a simple inline password wall (e.g. standard TextInput on the Admin tab) before revealing the Admin Dashboard UI. No complex auth/backend required, just local state or basic validation."
+  ]
+}
