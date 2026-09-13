@@ -20,6 +20,10 @@ export type Booking = {
   car_brand: string;
   car_model: string;
   notes?: string;
+  home_visit?: boolean;
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   status: "pending" | "confirmed" | "rejected";
   created_at: string;
 };
@@ -52,6 +56,10 @@ export const createBooking = (payload: {
   car_brand: string;
   car_model: string;
   notes?: string;
+  home_visit?: boolean;
+  address?: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }) => request<Booking>("/bookings", { method: "POST", body: JSON.stringify(payload) });
 export const bookingsByPhone = (phone: string) =>
   request<Booking[]>(`/bookings/phone/${encodeURIComponent(phone)}`);

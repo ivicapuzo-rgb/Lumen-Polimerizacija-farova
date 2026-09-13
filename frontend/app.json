@@ -9,14 +9,18 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.headlampslots.fhvtsl"
+      "bundleIdentifier": "com.emergent.headlampslots.fhvtsl",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Pošalji tačnu adresu za dolazak na lokaciju"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.emergent.headlampslots.fhvtsl"
+      "package": "com.emergent.headlampslots.fhvtsl",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
     },
     "web": {
       "bundler": "metro",
@@ -39,7 +43,13 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-status-bar",
-      "@react-native-vector-icons/material-design-icons"
+      "@react-native-vector-icons/material-design-icons",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Pošalji tačnu adresu za dolazak na lokaciju"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

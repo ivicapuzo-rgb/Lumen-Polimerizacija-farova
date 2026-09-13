@@ -3,11 +3,13 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -17,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 
 import { createBooking, savePhone } from "@/src/api";
 import { CAR_BRANDS } from "@/src/carBrands";
@@ -44,7 +47,54 @@ export default function BookingForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  const [homeVisit, setHomeVisit] = useState(false);
+  const [address, setAddress] = useState("");
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
+
   const models = useMemo(() => CAR_BRANDS.find((b) => b.brand === brand)?.models || [], [brand]);
+
+  const captureLocation = async () => {
+    setLocError(null);
+    setLocBusy(true);
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (!perm.granted) {
+        if (!perm.canAskAgain) {
+          setLocError("Dozvola za lokaciju je odbijena. Otvori podešavanja da je uključiš.");
+        } else {
+          setLocError("Dozvola za lokaciju je potrebna za automatsko hvatanje.");
+        }
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      // Try reverse geocoding for a friendly address suggestion
+      try {
+        const rev = await Location.reverseGeocodeAsync({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        });
+        if (rev[0]) {
+          const r = rev[0];
+          const parts = [r.street, r.streetNumber, r.city].filter(Boolean).join(" ");
+          if (parts && !address) setAddress(parts);
+        }
+      } catch {}
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setLocError("Nije moguće preuzeti lokaciju. Pokušaj ponovo.");
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  const openInMaps = () => {
+    if (!coords) return;
+    const url = `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`;
+    Linking.openURL(url).catch(() => {});
+  };
 
   const submit = async () => {
     setError(null);
@@ -52,6 +102,9 @@ export default function BookingForm() {
     if (!phone.trim() || phone.trim().length < 6) return setError("Unesi ispravan broj telefona");
     if (!brand) return setError("Izaberi marku auta");
     if (!model) return setError("Izaberi model auta");
+    if (homeVisit && !address.trim() && !coords) {
+      return setError("Unesi adresu ili preuzmi tačnu lokaciju");
+    }
 
     setBusy(true);
     try {
@@ -62,6 +115,10 @@ export default function BookingForm() {
         car_brand: brand,
         car_model: model,
         notes: notes.trim(),
+        home_visit: homeVisit,
+        address: homeVisit ? address.trim() : "",
+        latitude: homeVisit ? coords?.latitude ?? null : null,
+        longitude: homeVisit ? coords?.longitude ?? null : null,
       });
       await savePhone(phone.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -186,6 +243,73 @@ export default function BookingForm() {
             multiline
           />
         </Field>
+
+        <View style={styles.homeVisitCard}>
+          <View style={styles.homeVisitRow}>
+            <View style={styles.homeVisitIcon}>
+              <Icon name="home-map-marker" size={22} color={colors.brandPrimary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.homeVisitTitle}>Dolazak na kućnu adresu</Text>
+              <Text style={styles.homeVisitSub}>Dolazim kod tebe umesto tvog dolaska</Text>
+            </View>
+            <Switch
+              testID="home-visit-switch"
+              value={homeVisit}
+              onValueChange={setHomeVisit}
+              trackColor={{ false: colors.surfaceTertiary, true: colors.brandPrimary }}
+              thumbColor={colors.onBrandPrimary}
+            />
+          </View>
+
+          {homeVisit && (
+            <View style={{ marginTop: 12, gap: 10 }}>
+              <TextInput
+                testID="address-input"
+                style={styles.input}
+                value={address}
+                onChangeText={setAddress}
+                placeholder="Ulica i broj, grad"
+                placeholderTextColor={colors.muted}
+              />
+              <Pressable
+                testID="capture-location-btn"
+                style={({ pressed }) => [styles.locBtn, pressed && { opacity: 0.85 }]}
+                onPress={captureLocation}
+                disabled={locBusy}
+              >
+                {locBusy ? (
+                  <ActivityIndicator color={colors.brandPrimary} />
+                ) : (
+                  <>
+                    <Icon name="crosshairs-gps" size={18} color={colors.brandPrimary} />
+                    <Text style={styles.locBtnText}>
+                      {coords ? "Osveži tačnu lokaciju" : "Uzmi tačnu lokaciju"}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+
+              {coords && (
+                <Pressable testID="open-maps-btn" style={styles.mapPreview} onPress={openInMaps}>
+                  <Icon name="map-marker-check" size={22} color={colors.success} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mapPreviewTitle}>Lokacija zabeležena</Text>
+                    <Text style={styles.mapPreviewCoords}>
+                      {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}
+                    </Text>
+                  </View>
+                  <View style={styles.mapPreviewCta}>
+                    <Icon name="google-maps" size={16} color={colors.onBrandPrimary} />
+                    <Text style={styles.mapPreviewCtaText}>Maps</Text>
+                  </View>
+                </Pressable>
+              )}
+
+              {locError ? <Text style={styles.errorText}>{locError}</Text> : null}
+            </View>
+          )}
+        </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
@@ -357,6 +481,59 @@ const styles = StyleSheet.create({
   },
   selectText: { color: colors.onSurface, fontSize: 15 },
   errorText: { color: colors.error, fontSize: 14, marginTop: 4 },
+  homeVisitCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    marginBottom: 16,
+  },
+  homeVisitRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  homeVisitIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeVisitTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "800" },
+  homeVisitSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  locBtn: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brandTertiary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+  },
+  locBtnText: { color: colors.onBrandTertiary, fontWeight: "700", fontSize: 14 },
+  mapPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  mapPreviewTitle: { color: colors.onSurface, fontSize: 13, fontWeight: "700" },
+  mapPreviewCoords: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  mapPreviewCta: {
+    flexDirection: "row",
+    gap: 4,
+    alignItems: "center",
+    backgroundColor: colors.brandPrimary,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  mapPreviewCtaText: { color: colors.onBrandPrimary, fontSize: 12, fontWeight: "800" },
   stickyCTA: {
     position: "absolute",
     left: 0,

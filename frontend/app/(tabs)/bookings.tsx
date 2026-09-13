@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -152,6 +153,33 @@ export default function MyBookingsScreen() {
                     <Text style={styles.rowText}>{item.notes}</Text>
                   </View>
                 ) : null}
+                {item.home_visit ? (
+                  <View style={styles.homeVisitBlock}>
+                    <View style={styles.row}>
+                      <Icon name="home-map-marker" size={16} color={colors.brandPrimary} />
+                      <Text style={[styles.rowText, { color: colors.brandPrimary, fontWeight: "700" }]}>
+                        Dolazak na adresu
+                      </Text>
+                    </View>
+                    {item.address ? (
+                      <Text style={styles.addressText}>{item.address}</Text>
+                    ) : null}
+                    {item.latitude != null && item.longitude != null ? (
+                      <Pressable
+                        testID={`open-maps-${item.id}`}
+                        style={styles.mapsLink}
+                        onPress={() =>
+                          Linking.openURL(
+                            `https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`,
+                          )
+                        }
+                      >
+                        <Icon name="google-maps" size={14} color={colors.onBrandPrimary} />
+                        <Text style={styles.mapsLinkText}>Otvori u Google Maps</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             );
           }}
@@ -221,4 +249,25 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: colors.divider, marginVertical: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   rowText: { color: colors.onSurfaceSecondary, fontSize: 14, flex: 1 },
+  homeVisitBlock: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: colors.brandTertiary,
+    gap: 6,
+  },
+  addressText: { color: colors.onBrandTertiary, fontSize: 13, marginLeft: 24 },
+  mapsLink: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.brandPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    marginLeft: 24,
+    marginTop: 2,
+  },
+  mapsLinkText: { color: colors.onBrandPrimary, fontSize: 12, fontWeight: "800" },
 });

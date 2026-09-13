@@ -49,6 +49,10 @@ class Booking(BaseModel):
     car_brand: str
     car_model: str
     notes: Optional[str] = ""
+    home_visit: bool = False
+    address: Optional[str] = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     status: str = "pending"  # pending | confirmed | rejected
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -60,6 +64,10 @@ class BookingCreate(BaseModel):
     car_brand: str
     car_model: str
     notes: Optional[str] = ""
+    home_visit: bool = False
+    address: Optional[str] = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class BookingStatusUpdate(BaseModel):
@@ -106,6 +114,10 @@ async def create_booking(payload: BookingCreate):
         car_brand=payload.car_brand.strip(),
         car_model=payload.car_model.strip(),
         notes=(payload.notes or "").strip(),
+        home_visit=bool(payload.home_visit),
+        address=(payload.address or "").strip(),
+        latitude=payload.latitude,
+        longitude=payload.longitude,
     )
     await db.bookings.insert_one(booking.dict())
     await db.slots.update_one({"id": payload.slot_id}, {"$set": {"is_booked": True}})
