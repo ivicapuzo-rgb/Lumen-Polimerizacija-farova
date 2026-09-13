@@ -21,15 +21,20 @@ import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 
 import {
+  adminAddBlocked,
   adminCreateSlot,
   adminDeleteAllBookings,
   adminDeleteAllSlots,
   adminDeleteSlot,
+  adminGetStats,
+  adminListBlocked,
   adminListBookings,
   adminListSlots,
   adminLogin,
+  adminRemoveBlocked,
   adminUpdateBooking,
   adminUpdateSettings,
+  BlockedDay,
   Booking,
   clearAdminPw,
   getSettings,
@@ -37,11 +42,16 @@ import {
   saveAdminPw,
   Settings,
   Slot,
+  Stats,
 } from "@/src/api";
 import { colors } from "@/src/theme";
 
 const HERO =
   "https://images.unsplash.com/photo-1567808291548-fc3ee04dbcf0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwyfHxzcG9ydHMlMjBjYXIlMjBkYXJrJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODkyODQyMDN8MA&ixlib=rb-4.1.0&q=85";
+
+const APP_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "https://headlamp-slots.preview.emergentagent.com";
+const qrForUrl = (url: string) =>
+  `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&color=0d0d0d&bgcolor=ffb020&data=${encodeURIComponent(url)}`;
 
 const STATUS_META: Record<Booking["status"], { label: string; bg: string; fg: string }> = {
   pending: { label: "Na čekanju", bg: colors.brandTertiary, fg: colors.onBrandTertiary },
@@ -60,7 +70,7 @@ export default function AdminScreen() {
   const [authed, setAuthed] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [tab, setTab] = useState<"slots" | "bookings" | "settings">("bookings");
+  const [tab, setTab] = useState<"slots" | "bookings" | "stats" | "settings">("bookings");
 
   useEffect(() => {
     loadAdminPw().then((pw) => {
@@ -164,7 +174,12 @@ export default function AdminScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.tabsRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabsScroll}
+        contentContainerStyle={styles.tabsRow}
+      >
         <Pressable
           testID="admin-tab-bookings"
           style={[styles.tab, tab === "bookings" && styles.tabActive]}
@@ -180,18 +195,27 @@ export default function AdminScreen() {
           <Text style={[styles.tabText, tab === "slots" && styles.tabTextActive]}>Termini</Text>
         </Pressable>
         <Pressable
+          testID="admin-tab-stats"
+          style={[styles.tab, tab === "stats" && styles.tabActive]}
+          onPress={() => setTab("stats")}
+        >
+          <Text style={[styles.tabText, tab === "stats" && styles.tabTextActive]}>Statistika</Text>
+        </Pressable>
+        <Pressable
           testID="admin-tab-settings"
           style={[styles.tab, tab === "settings" && styles.tabActive]}
           onPress={() => setTab("settings")}
         >
           <Text style={[styles.tabText, tab === "settings" && styles.tabTextActive]}>Podešavanja</Text>
         </Pressable>
-      </View>
+      </ScrollView>
 
       {tab === "slots" ? (
         <SlotsAdmin password={password} />
       ) : tab === "bookings" ? (
         <BookingsAdmin password={password} />
+      ) : tab === "stats" ? (
+        <StatsAdmin password={password} />
       ) : (
         <SettingsAdmin password={password} />
       )}
@@ -571,6 +595,167 @@ function BookingsAdmin({ password }: { password: string }) {
   );
 }
 
+// ============= Stats Admin =============
+const MONTH_LABELS = [
+  "januar", "februar", "mart", "april", "maj", "jun",
+  "jul", "avgust", "septembar", "oktobar", "novembar", "decembar",
+];
+
+function toMonthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonth(key: string) {
+  const [y, m] = key.split("-").map((n) => parseInt(n, 10));
+  return `${MONTH_LABELS[m - 1]} ${y}`;
+}
+
+function StatsAdmin({ password }: { password: string }) {
+  const [month, setMonth] = useState<string>(() => toMonthKey(new Date()));
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async (m: string) => {
+    try {
+      const s = await adminGetStats(password, m);
+      setStats(s);
+    } catch {}
+  };
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await load(month);
+      setLoading(false);
+    })();
+  }, [month]);
+
+  const shiftMonth = (delta: number) => {
+    const [y, m] = month.split("-").map((n) => parseInt(n, 10));
+    const d = new Date(y, m - 1 + delta, 1);
+    setMonth(toMonthKey(d));
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load(month);
+    setRefreshing(false);
+  };
+
+  const currency = stats?.daily.find(() => true) ? "RSD" : "RSD";
+  const maxHistoryRevenue = Math.max(1, ...(stats?.history || []).map((h) => h.revenue));
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.statsScroll}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
+    >
+      <View style={styles.monthNav}>
+        <Pressable testID="stats-prev-month" style={styles.monthNavBtn} onPress={() => shiftMonth(-1)}>
+          <Icon name="chevron-left" size={22} color={colors.onSurface} />
+        </Pressable>
+        <View style={styles.monthNavLabel}>
+          <Text style={styles.monthNavText}>{formatMonth(month)}</Text>
+        </View>
+        <Pressable testID="stats-next-month" style={styles.monthNavBtn} onPress={() => shiftMonth(1)}>
+          <Icon name="chevron-right" size={22} color={colors.onSurface} />
+        </Pressable>
+      </View>
+
+      {loading ? (
+        <View style={{ paddingVertical: 40, alignItems: "center" }}>
+          <ActivityIndicator color={colors.brandPrimary} />
+        </View>
+      ) : stats ? (
+        <>
+          <View style={styles.kpiRow}>
+            <View style={[styles.kpiCard, styles.kpiHighlight]}>
+              <Icon name="cash-multiple" size={20} color={colors.onBrandPrimary} />
+              <Text style={styles.kpiLabelBig}>Ukupna zarada</Text>
+              <Text style={styles.kpiValueBig} testID="stats-revenue">
+                {stats.revenue.toLocaleString("sr-RS")} {currency}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.kpiRow}>
+            <View style={styles.kpiCard}>
+              <Icon name="check-decagram" size={18} color={colors.success} />
+              <Text style={styles.kpiLabel}>Završeno</Text>
+              <Text style={styles.kpiValue} testID="stats-confirmed">{stats.confirmed_count}</Text>
+            </View>
+            <View style={styles.kpiCard}>
+              <Icon name="clock-outline" size={18} color={colors.brandPrimary} />
+              <Text style={styles.kpiLabel}>Na čekanju</Text>
+              <Text style={styles.kpiValue}>{stats.pending_count}</Text>
+            </View>
+            <View style={styles.kpiCard}>
+              <Icon name="close-circle-outline" size={18} color={colors.error} />
+              <Text style={styles.kpiLabel}>Odbijeno</Text>
+              <Text style={styles.kpiValue}>{stats.rejected_count}</Text>
+            </View>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Poslednjih 6 meseci</Text>
+            {stats.history.map((h) => (
+              <View key={h.month} style={styles.histRow} testID={`hist-${h.month}`}>
+                <Text style={styles.histMonth}>{formatMonth(h.month)}</Text>
+                <View style={styles.histBarWrap}>
+                  <View
+                    style={[
+                      styles.histBar,
+                      {
+                        width: `${Math.max(4, (h.revenue / maxHistoryRevenue) * 100)}%`,
+                        backgroundColor: h.month === month ? colors.brandPrimary : colors.brandTertiary,
+                      },
+                    ]}
+                  />
+                </View>
+                <View style={{ alignItems: "flex-end", minWidth: 88 }}>
+                  <Text style={styles.histRevenue}>
+                    {h.revenue.toLocaleString("sr-RS")}
+                  </Text>
+                  <Text style={styles.histCount}>{h.count} usluga</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {stats.daily.length > 0 ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Dnevni pregled — {formatMonth(month)}</Text>
+              {stats.daily.map((d) => (
+                <View key={d.date} style={styles.dailyRow}>
+                  <View style={styles.dailyDate}>
+                    <Text style={styles.dailyDateText}>{d.date.slice(-2)}</Text>
+                  </View>
+                  <Text style={styles.dailyCount}>{d.count} × usluga</Text>
+                  <Text style={styles.dailyRevenue}>
+                    {d.revenue.toLocaleString("sr-RS")} {currency}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.sectionCard}>
+              <View style={{ alignItems: "center", padding: 20 }}>
+                <Icon name="chart-line-variant" size={40} color={colors.muted} />
+                <Text style={styles.emptyStats}>Nema završenih usluga za ovaj mesec</Text>
+                <Text style={styles.emptyStatsSub}>
+                  Zarada se broji samo za rezervacije koje si potvrdio u tom mesecu.
+                </Text>
+              </View>
+            </View>
+          )}
+        </>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+
 // ============= Settings Admin =============
 function SettingsAdmin({ password }: { password: string }) {
   const insets = useSafeAreaInsets();
@@ -583,17 +768,58 @@ function SettingsAdmin({ password }: { password: string }) {
   const [wiping, setWiping] = useState(false);
   const [wipeResult, setWipeResult] = useState<string | null>(null);
 
+  const [blocked, setBlocked] = useState<BlockedDay[]>([]);
+  const [newBlockDate, setNewBlockDate] = useState("");
+  const [blockErr, setBlockErr] = useState<string | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+
   const load = async () => {
     try {
       const s = await getSettings();
       setSettings(s);
       setPrice(String(s.price));
+      const b = await adminListBlocked(password);
+      setBlocked(b);
     } catch {}
   };
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const addBlocked = async () => {
+    setBlockErr(null);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newBlockDate)) {
+      setBlockErr("Datum mora biti u formatu GGGG-MM-DD");
+      return;
+    }
+    setBlockBusy(true);
+    try {
+      await adminAddBlocked(password, newBlockDate);
+      setNewBlockDate("");
+      const b = await adminListBlocked(password);
+      setBlocked(b);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setBlockErr(e.message || "Greška");
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
+  const removeBlocked = async (date: string) => {
+    try {
+      await adminRemoveBlocked(password, date);
+      const b = await adminListBlocked(password);
+      setBlocked(b);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+  };
+
+  const shareQr = async () => {
+    Linking.openURL(APP_URL).catch(() => {});
+  };
 
   const savePrice = async () => {
     setErr(null);
@@ -675,6 +901,96 @@ function SettingsAdmin({ password }: { password: string }) {
           )}
         </Pressable>
       </View>
+
+      {/* Blocked days */}
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="calendar-remove-outline" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Blokada datuma</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Klijentima će svi termini na blokiranim datumima biti sakriveni, a tvoji termini ostaju sačuvani.
+        </Text>
+
+        <Text style={styles.label}>Novi neradni datum (GGGG-MM-DD)</Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TextInput
+            testID="new-blocked-input"
+            style={[styles.priceInput, { flex: 1, fontSize: 16, fontWeight: "600" }]}
+            value={newBlockDate}
+            onChangeText={setNewBlockDate}
+            placeholder="2026-05-01"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+          />
+          <Pressable
+            testID="add-blocked-btn"
+            style={[styles.saveBtn, { marginTop: 0, paddingHorizontal: 18 }]}
+            onPress={addBlocked}
+            disabled={blockBusy}
+          >
+            {blockBusy ? (
+              <ActivityIndicator color={colors.onBrandPrimary} />
+            ) : (
+              <Icon name="plus" size={20} color={colors.onBrandPrimary} />
+            )}
+          </Pressable>
+        </View>
+        {blockErr ? <Text style={styles.errorInline}>{blockErr}</Text> : null}
+
+        <View style={{ marginTop: 12, gap: 6 }}>
+          {blocked.length === 0 ? (
+            <Text style={styles.settingsHint}>Trenutno nema blokiranih datuma.</Text>
+          ) : (
+            blocked.map((b) => (
+              <View key={b.date} style={styles.blockedRow} testID={`blocked-${b.date}`}>
+                <Icon name="calendar-remove" size={18} color={colors.error} />
+                <Text style={styles.blockedDate}>{b.date}</Text>
+                <Pressable
+                  testID={`unblock-${b.date}`}
+                  style={styles.unblockBtn}
+                  onPress={() => removeBlocked(b.date)}
+                >
+                  <Icon name="close" size={16} color={colors.onSurface} />
+                </Pressable>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+
+      {/* QR code */}
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="qrcode" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>QR kod cenovnika</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Odštampaj i zalepi u radionici. Klijent skenira i otvara aplikaciju.
+        </Text>
+
+        <View style={styles.qrWrap}>
+          <Image
+            testID="qr-image"
+            source={qrForUrl(APP_URL)}
+            style={styles.qrImage}
+            contentFit="cover"
+          />
+        </View>
+        <Text style={styles.qrUrl} numberOfLines={1}>
+          {APP_URL}
+        </Text>
+        <Pressable
+          testID="open-qr-btn"
+          style={[styles.saveBtn, { backgroundColor: colors.brandSecondary }]}
+          onPress={shareQr}
+        >
+          <Icon name="download-outline" size={18} color={colors.onBrandSecondary} />
+          <Text style={[styles.saveBtnText, { color: colors.onBrandSecondary }]}>Otvori QR u browser-u</Text>
+        </Pressable>
+      </View>
+
+
 
       <View style={[styles.settingsCard, styles.dangerCard]}>
         <View style={styles.settingsHeader}>
@@ -813,17 +1129,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  tabsScroll: { flexGrow: 0, marginTop: 12 },
   tabsRow: {
     flexDirection: "row",
     marginHorizontal: 16,
-    marginTop: 12,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: 10,
     padding: 4,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: 2,
   },
-  tab: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+  tab: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, alignItems: "center" },
   tabActive: { backgroundColor: colors.brandPrimary },
   tabText: { color: colors.onSurfaceTertiary, fontSize: 13, fontWeight: "700" },
   tabTextActive: { color: colors.onBrandPrimary },
@@ -1056,4 +1373,122 @@ const styles = StyleSheet.create({
   confirmCancelText: { color: colors.onSurface, fontWeight: "700" },
   confirmDelete: { backgroundColor: colors.error },
   confirmDeleteText: { color: colors.onError, fontWeight: "800" },
+
+  // Blocked days
+  blockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  blockedDate: { color: colors.onSurface, fontSize: 14, fontWeight: "700", flex: 1 },
+  unblockBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
+  // QR
+  qrWrap: {
+    alignSelf: "center",
+    marginTop: 6,
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: colors.brand,
+  },
+  qrImage: { width: 220, height: 220, borderRadius: 8 },
+  qrUrl: { color: colors.muted, fontSize: 12, textAlign: "center", marginTop: 8 },
+
+  // Stats
+  statsScroll: { padding: 16, paddingBottom: 40, gap: 12 },
+  monthNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  monthNavBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthNavLabel: { flex: 1, alignItems: "center" },
+  monthNavText: { color: colors.onSurface, fontSize: 16, fontWeight: "800", textTransform: "capitalize" },
+  kpiRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  kpiCard: {
+    flex: 1,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    gap: 4,
+  },
+  kpiHighlight: {
+    backgroundColor: colors.brandPrimary,
+    borderColor: colors.brandPrimary,
+  },
+  kpiLabel: { color: colors.muted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  kpiLabelBig: { color: colors.onBrandPrimary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  kpiValue: { color: colors.onSurface, fontSize: 20, fontWeight: "800" },
+  kpiValueBig: { color: colors.onBrandPrimary, fontSize: 26, fontWeight: "800" },
+  sectionCard: {
+    marginTop: 6,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+  },
+  sectionTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "800", marginBottom: 12 },
+  histRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  histMonth: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "700", width: 90, textTransform: "capitalize" },
+  histBarWrap: {
+    flex: 1,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden",
+  },
+  histBar: { height: "100%", borderRadius: 5 },
+  histRevenue: { color: colors.onSurface, fontSize: 13, fontWeight: "800" },
+  histCount: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  dailyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  dailyDate: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dailyDateText: { color: colors.onBrandTertiary, fontWeight: "800" },
+  dailyCount: { flex: 1, color: colors.onSurfaceSecondary, fontSize: 14 },
+  dailyRevenue: { color: colors.brandPrimary, fontWeight: "800", fontSize: 14 },
+  emptyStats: { color: colors.onSurface, fontSize: 15, fontWeight: "700", marginTop: 8 },
+  emptyStatsSub: { color: colors.muted, fontSize: 12, textAlign: "center", marginTop: 4, lineHeight: 18 },
 });

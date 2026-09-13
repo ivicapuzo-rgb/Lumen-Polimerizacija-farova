@@ -24,6 +24,8 @@ export type Booking = {
   address?: string;
   latitude?: number | null;
   longitude?: number | null;
+  unit_price?: number;
+  currency?: string;
   status: "pending" | "confirmed" | "rejected";
   created_at: string;
 };
@@ -31,6 +33,19 @@ export type Booking = {
 export type Settings = {
   price: number;
   currency: string;
+};
+
+export type BlockedDay = { date: string };
+
+export type Stats = {
+  month: string;
+  confirmed_count: number;
+  pending_count: number;
+  rejected_count: number;
+  total_bookings: number;
+  revenue: number;
+  daily: { date: string; count: number; revenue: number }[];
+  history: { month: string; count: number; revenue: number }[];
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -126,6 +141,27 @@ export const adminDeleteAllBookings = (password: string) =>
 export const adminDeleteAllSlots = (password: string) =>
   request<{ ok: boolean; slots_deleted: number; bookings_deleted: number }>("/admin/slots", {
     method: "DELETE",
+    headers: adminHeaders(password),
+  });
+
+export const adminListBlocked = (password: string) =>
+  request<BlockedDay[]>("/admin/blocked-days", { headers: adminHeaders(password) });
+
+export const adminAddBlocked = (password: string, date: string) =>
+  request<BlockedDay>("/admin/blocked-days", {
+    method: "POST",
+    headers: adminHeaders(password),
+    body: JSON.stringify({ date }),
+  });
+
+export const adminRemoveBlocked = (password: string, date: string) =>
+  request<{ ok: boolean; deleted: number }>(`/admin/blocked-days/${date}`, {
+    method: "DELETE",
+    headers: adminHeaders(password),
+  });
+
+export const adminGetStats = (password: string, month: string) =>
+  request<Stats>(`/admin/stats?month=${encodeURIComponent(month)}`, {
     headers: adminHeaders(password),
   });
 

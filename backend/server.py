@@ -53,6 +53,8 @@ class Booking(BaseModel):
     address: Optional[str] = ""
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    unit_price: int = 0
+    currency: str = "RSD"
     status: str = "pending"  # pending | confirmed | rejected
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -88,6 +90,10 @@ class SettingsUpdate(BaseModel):
     currency: Optional[str] = None
 
 
+class BlockedDay(BaseModel):
+    date: str
+
+
 async def get_settings_doc() -> Settings:
     doc = await db.settings.find_one({"_id": "singleton"})
     if not doc:
@@ -112,6 +118,10 @@ async def root():
 @api_router.get("/slots", response_model=List[Slot])
 async def list_slots(only_available: bool = True):
     query = {"is_booked": False} if only_available else {}
+    blocked = await db.blocked_days.find({}, {"_id": 0}).to_list(1000)
+    blocked_dates = [b["date"] for b in blocked]
+    if blocked_dates:
+        query["date"] = {"$nin": blocked_dates}
     docs = await db.slots.find(query, {"_id": 0}).sort([("date", 1), ("time", 1)]).to_list(1000)
     return [Slot(**d) for d in docs]
 
@@ -129,6 +139,8 @@ async def create_booking(payload: BookingCreate):
     if slot.get("is_booked"):
         raise HTTPException(status_code=400, detail="Termin je već zauzet")
 
+    settings = await get_settings_doc()
+
     booking = Booking(
         slot_id=payload.slot_id,
         slot_date=slot["date"],
@@ -142,6 +154,8 @@ async def create_booking(payload: BookingCreate):
         address=(payload.address or "").strip(),
         latitude=payload.latitude,
         longitude=payload.longitude,
+        unit_price=settings.price,
+        currency=settings.currency,
     )
     await db.bookings.insert_one(booking.dict())
     await db.slots.update_one({"id": payload.slot_id}, {"$set": {"is_booked": True}})
@@ -244,6 +258,92 @@ async def admin_delete_all_slots(x_admin_password: Optional[str] = Header(defaul
     res_slots = await db.slots.delete_many({})
     res_book = await db.bookings.delete_many({})
     return {"ok": True, "slots_deleted": res_slots.deleted_count, "bookings_deleted": res_book.deleted_count}
+
+
+# ---- Blocked days
+@api_router.get("/admin/blocked-days", response_model=List[BlockedDay])
+async def admin_list_blocked(x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    docs = await db.blocked_days.find({}, {"_id": 0}).sort([("date", 1)]).to_list(1000)
+    return [BlockedDay(**d) for d in docs]
+
+
+@api_router.post("/admin/blocked-days", response_model=BlockedDay)
+async def admin_add_blocked(payload: BlockedDay, x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    if not payload.date or len(payload.date) != 10:
+        raise HTTPException(status_code=400, detail="Datum mora biti GGGG-MM-DD")
+    existing = await db.blocked_days.find_one({"date": payload.date}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Datum je već blokiran")
+    await db.blocked_days.insert_one({"date": payload.date})
+    return BlockedDay(date=payload.date)
+
+
+@api_router.delete("/admin/blocked-days/{date}")
+async def admin_remove_blocked(date: str, x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    res = await db.blocked_days.delete_one({"date": date})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+# ---- Stats
+@api_router.get("/admin/stats")
+async def admin_stats(month: str, x_admin_password: Optional[str] = Header(default=None)):
+    """month: YYYY-MM. Returns confirmed count + revenue for that month + last 6 months history."""
+    _check_admin(x_admin_password)
+    if not month or len(month) != 7 or month[4] != "-":
+        raise HTTPException(status_code=400, detail="month mora biti u formatu YYYY-MM")
+
+    # Current month totals (only confirmed count toward revenue)
+    month_bookings = await db.bookings.find(
+        {"slot_date": {"$regex": f"^{month}-"}}, {"_id": 0}
+    ).to_list(2000)
+    confirmed = [b for b in month_bookings if b.get("status") == "confirmed"]
+    pending = [b for b in month_bookings if b.get("status") == "pending"]
+    rejected = [b for b in month_bookings if b.get("status") == "rejected"]
+
+    revenue = sum(int(b.get("unit_price", 0) or 0) for b in confirmed)
+
+    # Per day breakdown for current month
+    by_day: dict = {}
+    for b in confirmed:
+        d = b.get("slot_date", "")
+        by_day.setdefault(d, {"count": 0, "revenue": 0})
+        by_day[d]["count"] += 1
+        by_day[d]["revenue"] += int(b.get("unit_price", 0) or 0)
+    daily = [{"date": d, **v} for d, v in sorted(by_day.items())]
+
+    # Last 6 months history (including this month)
+    year = int(month[:4])
+    mo = int(month[5:])
+    history = []
+    for i in range(5, -1, -1):
+        y = year
+        m = mo - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        key = f"{y:04d}-{m:02d}"
+        docs = await db.bookings.find(
+            {"slot_date": {"$regex": f"^{key}-"}, "status": "confirmed"}, {"_id": 0}
+        ).to_list(2000)
+        history.append({
+            "month": key,
+            "count": len(docs),
+            "revenue": sum(int(d.get("unit_price", 0) or 0) for d in docs),
+        })
+
+    return {
+        "month": month,
+        "confirmed_count": len(confirmed),
+        "pending_count": len(pending),
+        "rejected_count": len(rejected),
+        "total_bookings": len(month_bookings),
+        "revenue": revenue,
+        "daily": daily,
+        "history": history,
+    }
 
 
 app.include_router(api_router)
