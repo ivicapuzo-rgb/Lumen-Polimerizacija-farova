@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 2 tested new admin password 'puzopb' + in-app notification (polling badge + banner). Backend: 11/11 pytest passed (new pw OK, old pw 401, unit_price snapshot matches settings, pending→confirmed→completed flow, invalid status rejected). Frontend (mobile 375x667): admin login accepts 'puzopb', rejects 'admin123' with inline error; auto-login via AsyncStorage works; pending bookings appear in Zahtevi within ~15s; confirming updates status to Potvrđeno. 'Nova rezervacija upravo stigla!' banner WORKS when baseline had existing pending bookings, but FAILS to trigger on 0→1 transition (empty baseline). Tab bar Admin badge does not render on web preview after logging in in same session (state doesn't refresh after saveAdminPw).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "usePendingBookings hook", "issue": "freshCount never increments on 0→N transition. The check `if (previousIds.length > 0)` skips hasNew detection on the very first fetch AND on the second fetch when previousIds was set to [] from empty baseline. Reference: /app/frontend/src/hooks/usePendingBookings.ts:41. Result: banner 'Nova rezervacija upravo stigla!' never fires when admin has zero pending bookings and someone books — arguably the most common scenario.", "testID": "new-request-banner", "priority": "HIGH"},
+      {"component": "TabsLayout badge", "issue": "The `usePendingBookings` hook inside `_layout.tsx` calls loadAdminPw() only once on mount. If AsyncStorage has no admin pw at app load, password state stays null forever and the react-query call is permanently disabled — so the Admin tab badge (pendingCount) never appears in the same session after login. Requires app reload. Reference: /app/frontend/src/hooks/usePendingBookings.ts:15-22 + /app/frontend/app/(tabs)/_layout.tsx:11. Note: BookingsAdmin's own copy of the hook works because that component mounts AFTER login.", "testID": "n/a", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [{"screen": "all", "issues": ["Recurring RN web warning: 'shadow*' style props are deprecated, use 'boxShadow' (non-blocking)"]}],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_lumen_api.py", "/app/test_reports/pytest/lumen.xml"],
+  "action_items": [
+    "Fix usePendingBookings to detect 0→N transitions: replace the `previousIds.length > 0` gate with a `hasBaseline` boolean ref that is set true AFTER the first successful fetch, then always compare currentIds vs previousIds when hasBaseline is true.",
+    "Fix TabsLayout badge: usePendingBookings needs to react to admin login. Options: (a) use a global store (zustand) for password shared between _layout and admin screens and update it via saveAdminPw / clearAdminPw wrappers; (b) subscribe to AsyncStorage changes; (c) poll loadAdminPw at short interval; (d) invoke `setAdminPassword` from the login handler through context. Currently `setAdminPassword` is exported from the hook but never wired up.",
+    "Optional: also call `markSeen` (or reset freshCount) when navigating away from Zahtevi to avoid stale unread state."
+  ],
+  "critical_code_review_comments": [
+    "usePendingBookings.ts: two independent copies of the hook (one in _layout, one in BookingsAdmin) each track their own previousPendingIds/freshCount — this makes 'freshness' inconsistent between the tab badge indicator dot and the in-screen banner. Consider a single shared source (context or zustand).",
+    "admin.tsx BookingsAdmin duplicates polling: it has its own 15s setInterval calling adminListBookings AND uses usePendingBookings (which also polls the same endpoint via react-query) — doubles API load. Rely on react-query cache instead.",
+    "adminLogin is called on every mount inside admin.tsx useEffect to validate stored pw — fine, but on failure it silently clears without notifying user."
+  ],
+  "updated_files": ["/app/backend/tests/test_lumen_api.py"],
+  "success_rate": {"backend": "100%", "frontend": "80%"},
+  "seed_data_creation": "All tests self-seed and clean up (TEST_ prefix). Between playwright test steps I call DELETE /api/admin/bookings to reset state. Final state after run: all test bookings deleted, slots freed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend uses EXPO_PUBLIC_BACKEND_URL. Admin pw = 'puzopb'. On web, AsyncStorage is localStorage — playwright launches with fresh state so admin auto-login only kicks in if pw was saved earlier in same browser context. Banner appears only for ~3s (markSeen setTimeout in admin.tsx:460), so poll for it in 1s ticks starting at ~10-16s after triggering booking.",
+  "rca_of_issue": "Banner-not-firing-on-empty-baseline: In usePendingBookings.ts line 36-48 the effect body reads `previousIds = previousPendingIds.current` (initial value []) then guards `if (previousIds.length > 0)`. On the very first fetch previousIds is [] so hasNew check is skipped and ref is set to currentIds. If currentIds was also [] (empty pending baseline), on the SECOND fetch previousIds is again [] (length 0) so the guard STILL skips hasNew — even though the actual current data now contains a new booking. Fix: track baseline established with a boolean ref, e.g. `const baselineSet = useRef(false); ... if (baselineSet.current) { hasNew check } baselineSet.current = true; previousPendingIds.current = currentIds;`. Tab-badge-not-showing-after-login: state `password` in the hook is initialised via one-shot useEffect(loadAdminPw). Since the _layout instance of the hook mounts once at app start (before any admin login), and there is no listener/prop to notify it of a subsequent saveAdminPw, its query stays enabled=false. The exported `setAdminPassword` callback in the hook is never called from anywhere — dead code."
+}

@@ -48,6 +48,9 @@ import {
 } from "@/src/api";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import { useQuery } from "@tanstack/react-query";
+
+import { usePendingBookings } from "@/src/hooks/usePendingBookings";
 import { colors } from "@/src/theme";
 
 const HERO =
@@ -427,29 +430,40 @@ function AddSlotModal({
 
 // ============= Bookings Admin =============
 function BookingsAdmin({ password }: { password: string }) {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | Booking["status"]>("pending");
+  const { freshCount, markSeen } = usePendingBookings();
 
-  const load = async () => {
-    try {
-      const data = await adminListBookings(password);
-      setBookings(data);
-    } catch {}
-  };
+  const { data: bookings = [], isLoading: loading, refetch } = useQuery({
+    queryKey: ["admin", "bookings", "poll", password],
+    queryFn: () => adminListBookings(password),
+    refetchInterval: 15_000,
+    retry: false,
+  });
 
+  // Whenever admin opens Zahtevi with new pending bookings, mark as seen
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await load();
-      setLoading(false);
-    })();
-  }, []);
+    if (freshCount > 0) {
+      const t = setTimeout(() => {
+        markSeen();
+      }, 3000);
+      return () => clearTimeout(t);
+    }
+  }, [freshCount, markSeen]);
+
+  const update = async (id: string, status: "confirmed" | "rejected" | "completed") => {
+    try {
+      await adminUpdateBooking(password, id, status);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await refetch();
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await refetch();
     setRefreshing(false);
   };
 
@@ -457,16 +471,6 @@ function BookingsAdmin({ password }: { password: string }) {
     () => (filter === "all" ? bookings : bookings.filter((b) => b.status === filter)),
     [bookings, filter],
   );
-
-  const update = async (id: string, status: "confirmed" | "rejected") => {
-    try {
-      await adminUpdateBooking(password, id, status);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      await load();
-    } catch {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  };
 
   const FILTERS: { key: typeof filter; label: string }[] = [
     { key: "pending", label: "Na čekanju" },
@@ -478,6 +482,14 @@ function BookingsAdmin({ password }: { password: string }) {
 
   return (
     <View style={{ flex: 1 }}>
+      {freshCount > 0 ? (
+        <View style={styles.newAlert} testID="new-request-banner">
+          <Icon name="bell-ring" size={20} color={colors.onBrandPrimary} />
+          <Text style={styles.newAlertText}>
+            {freshCount === 1 ? "Nova rezervacija upravo stigla!" : `${freshCount} novih rezervacija!`}
+          </Text>
+        </View>
+      ) : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1420,6 +1432,18 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.onBrandPrimary, fontSize: 16, fontWeight: "700" },
   chipsScroll: { flexGrow: 0, marginTop: 12 },
   chipsRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 8 },
+  newAlert: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  newAlertText: { color: colors.onBrandPrimary, fontSize: 14, fontWeight: "800", flex: 1 },
   chip: {
     flexShrink: 0,
     height: 36,

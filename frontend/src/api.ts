@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { setAdminPasswordGlobal } from "./authState";
+
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 export type Slot = {
@@ -191,6 +193,16 @@ const ADMIN_PW_KEY = "lumen:admin_pw";
 
 export const savePhone = (phone: string) => AsyncStorage.setItem(PHONE_KEY, phone);
 export const loadPhone = () => AsyncStorage.getItem(PHONE_KEY);
-export const saveAdminPw = (pw: string) => AsyncStorage.setItem(ADMIN_PW_KEY, pw);
-export const loadAdminPw = () => AsyncStorage.getItem(ADMIN_PW_KEY);
-export const clearAdminPw = () => AsyncStorage.removeItem(ADMIN_PW_KEY);
+export const saveAdminPw = async (pw: string) => {
+  await AsyncStorage.setItem(ADMIN_PW_KEY, pw);
+  setAdminPasswordGlobal(pw);
+};
+export const loadAdminPw = async () => {
+  const pw = await AsyncStorage.getItem(ADMIN_PW_KEY);
+  setAdminPasswordGlobal(pw);
+  return pw;
+};
+export const clearAdminPw = async () => {
+  await AsyncStorage.removeItem(ADMIN_PW_KEY);
+  setAdminPasswordGlobal(null);
+};

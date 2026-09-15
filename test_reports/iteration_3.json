@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 3 retest of BUG 1 and BUG 2 from iteration_2. Both fixes verified. Backend: 11/11 pytest pass (admin login 'puzopb' ok, old pw 401, booking full status flow, unit_price snapshot, invalid status 400). Frontend (mobile 375x667, fresh browser session): admin login with 'puzopb' works, panel authenticates; Zahtevi starts with empty baseline (0 pending). Booking created via API — 'Nova rezervacija upravo stigla!' banner appeared after ~10s on the 0→1 transition (BUG 1 fixed via hasBaseline ref). Admin tab bar badge shows '1' immediately in same session after login (BUG 2 fixed via shared authState store — no app reload required). Potvrdi moves booking to Potvrđeno filter; all 5 status chips clickable; home Termini price pill visible; layout intact.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "all", "issues": ["Recurring RN Web warning: 'shadow*' style props are deprecated, use 'boxShadow' (cosmetic, non-blocking; originates from LinearGradient/Pressable defaults)"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lumen_api.py",
+    "/app/test_reports/pytest/lumen.xml"
+  ],
+  "action_items": [
+    "Optional cleanup: remove the redundant setInterval polling that used to live in BookingsAdmin (already replaced by useQuery — done). No open action items for this iteration.",
+    "Optional: address RN Web 'shadow*' deprecation warning by switching to boxShadow or gating shadow* props behind Platform.OS !== 'web'."
+  ],
+  "critical_code_review_comments": [
+    "usePendingBookings is still instantiated twice (_layout + BookingsAdmin). With useQuery this is deduped by TanStack Query cache (same queryKey), so no doubled network calls — good. Consider extracting into a single provider component if state needs to be shared further.",
+    "authState.ts is a clean minimal external store; setAdminPasswordGlobal is only called from api.ts (saveAdminPw/clearAdminPw/loadAdminPw) so the surface remains small — good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Test resets /api/admin/bookings before and after the run so no residual TEST_ data remains.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin pw = 'puzopb'. usePendingBookings now uses hasBaseline ref + shared authState (useAdminPassword). To retest the 0→1 banner: DELETE /api/admin/bookings, load app, login, wait for empty state, POST /api/bookings, then poll [data-testid=\"new-request-banner\"] for ~15-20s. Banner auto-dismisses after ~3s (markSeen). Tab badge appears within one refetchInterval (15s) of login even in same session.",
+  "rca_of_issue": "Previous BUG 1 root cause was the `previousIds.length > 0` guard which skipped hasNew detection when baseline was empty; fixed by using a `hasBaseline` ref that is set true on the first successful fetch and then always compared thereafter. Previous BUG 2 root cause was that the _layout hook only read the password once at mount and had no listener to react to a subsequent login; fixed via `authState.ts` using useSyncExternalStore, with saveAdminPw/clearAdminPw/loadAdminPw all mutating the global synchronously — the _layout hook now receives password updates immediately and enables its useQuery, so tabBarBadge updates in the same session."
+}
