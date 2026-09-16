@@ -98,6 +98,17 @@ export const bookingsByPhone = (phone: string) =>
 
 export const getSettings = () => request<Settings>("/settings");
 
+export const heartbeat = (session_id: string, role: "customer" | "admin") =>
+  request<{ ok: boolean }>("/heartbeat", {
+    method: "POST",
+    body: JSON.stringify({ session_id, role }),
+  });
+
+export const adminGetOnline = (password: string) =>
+  request<{ online_total: number; customers: number; admins: number }>("/admin/online", {
+    headers: adminHeaders(password),
+  });
+
 // ---- Admin
 export const adminLogin = (password: string) =>
   request<{ ok: boolean }>("/admin/login", {

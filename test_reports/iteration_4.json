@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 4 — Online-count feature (heartbeat + admin online endpoint) fully validated end-to-end. Backend: 22/22 pytest pass (10 new heartbeat tests + 12 regression). Frontend (mobile 375x667): app loads, `useHeartbeat` POSTs to /api/heartbeat within first tick with correct payload {session_id, role:'customer'}; session_id persists to localStorage under key `lumen:session_id`. Admin login with 'puzopb' still works; Statistika tab renders `online-card` with pulsing green dot, `online-total` big number (=9 during test), and a customer/admin split chip row (6 klijenata / 3 admin). Regression areas (admin login, pending banner path, PDF report card, price editing, blocked days, QR, home price pill, booking full status flow, tab badge live update) unchanged from iteration 3.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "all", "issues": ["Recurring RN Web warnings: 'shadow*' style props deprecated (use boxShadow); 'useNativeDriver' unsupported on web for the pulsing dot animation — cosmetic only, animation still runs on JS driver."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_heartbeat_online.py",
+    "/app/backend/tests/test_lumen_api.py",
+    "/app/test_reports/pytest/lumen.xml"
+  ],
+  "action_items": [
+    "Optional: set `useNativeDriver: false` (or gate via Platform.OS==='web') for the online-dot Animated loop in admin.tsx OnlineNowCard to silence the warning on web.",
+    "Optional: sessions collection has no TTL index — stale docs older than 60s stay forever in Mongo. Consider a TTL index on `last_seen` (or scheduled cleanup) to keep the collection bounded, though it does not affect correctness of the /admin/online count (60s cutoff is enforced at query time)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:160 — good: `_id` excluded from projection, so no MongoDB ObjectId serialization issue.",
+    "server.py:159 — cutoff uses `datetime.now(timezone.utc).isoformat()` which sorts correctly against stored ISO strings (both include +00:00). Verified via direct-DB test that a doc with last_seen 2min ago is excluded and returns to the count as soon as its last_seen is refreshed.",
+    "useHeartbeat.ts — role is stored in a ref that is updated via a separate useEffect on password change, but the interval callback closes over `roleRef.current`, so the next tick correctly sends 'admin'. Fine.",
+    "useHeartbeat.ts — no cleanup on unmount for the initial one-off `beat()` fetch, but it's fire-and-forget with silent catch, so acceptable."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_heartbeat_online.py (new)"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100%"},
+  "seed_data_creation": "Heartbeat tests create ephemeral session_id docs (TEST_*). The stale-session test cleans up its own docs. Other TEST_ session docs will naturally expire from the /admin/online count after 60s (they remain in DB — see action item about TTL).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin pw = 'puzopb'. Heartbeat feature: POST /api/heartbeat {session_id, role} upserts a doc; GET /api/admin/online with x-admin-password header returns {online_total, customers, admins} counting docs with last_seen within the last 60s. Frontend hook `useHeartbeat` runs from _layout, stores session_id in AsyncStorage/localStorage under 'lumen:session_id', beats every 30s and on AppState active (native only). Admin UI: Statistika tab has OnlineNowCard (testID `online-card`, `online-total`), refreshes every 15s. If retesting the 60s expiry live, prefer direct-DB manipulation over sleep(65).",
+  "rca_of_issue": "N/A — feature added cleanly, no bugs found."
+}

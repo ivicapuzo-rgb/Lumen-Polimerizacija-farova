@@ -8,11 +8,25 @@ import { StatusBar } from "expo-status-bar";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { colors } from "@/src/theme";
+import { useHeartbeat } from "@/src/hooks/useHeartbeat";
 
 // Prewarm icon assets so Expo Go on Android loads them reliably.
 import "@react-native-vector-icons/material-design-icons";
 
 LogBox.ignoreAllLogs(true);
+
+function AppShell() {
+  useHeartbeat();
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.surface },
+        animation: "slide_from_right",
+      }}
+    />
+  );
+}
 
 export default function RootLayout() {
   return (
@@ -21,13 +35,7 @@ export default function RootLayout() {
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>
             <StatusBar style="light" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.surface },
-                animation: "slide_from_right",
-              }}
-            />
+            <AppShell />
           </QueryClientProvider>
         </ErrorBoundary>
       </SafeAreaProvider>

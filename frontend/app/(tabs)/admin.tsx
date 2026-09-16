@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Linking,
@@ -26,6 +27,7 @@ import {
   adminDeleteAllBookings,
   adminDeleteAllSlots,
   adminDeleteSlot,
+  adminGetOnline,
   adminGetReport,
   adminGetStats,
   adminListBlocked,
@@ -708,6 +710,67 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
+
+function OnlineNowCard({ password }: { password: string }) {
+  const [data, setData] = useState<{ online_total: number; customers: number; admins: number } | null>(null);
+  const pulse = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    let stopped = false;
+    const load = async () => {
+      try {
+        const r = await adminGetOnline(password);
+        if (!stopped) setData(r);
+      } catch {}
+    };
+    load();
+    const t = setInterval(load, 15_000);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [password]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 900, useNativeDriver: Platform.OS !== "web" }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <View style={styles.onlineCard} testID="online-card">
+      <View style={styles.onlineTop}>
+        <View style={styles.onlineDotWrap}>
+          <Animated.View style={[styles.onlineDot, { opacity: pulse }]} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.onlineTitle}>Trenutno online</Text>
+          <Text style={styles.onlineSub}>Aktivnost u poslednjih 60 sekundi</Text>
+        </View>
+        <Text style={styles.onlineBig} testID="online-total">{data?.online_total ?? "–"}</Text>
+      </View>
+      <View style={styles.onlineBreak}>
+        <View style={styles.onlineChip}>
+          <Icon name="account-outline" size={14} color={colors.onSurface} />
+          <Text style={styles.onlineChipText}>{data?.customers ?? 0} klijenata</Text>
+        </View>
+        <View style={styles.onlineChip}>
+          <Icon name="shield-account-outline" size={14} color={colors.brandPrimary} />
+          <Text style={[styles.onlineChipText, { color: colors.brandPrimary }]}>
+            {data?.admins ?? 0} admin
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+
 function StatsAdmin({ password }: { password: string }) {
   const [month, setMonth] = useState<string>(() => toMonthKey(new Date()));
   const [stats, setStats] = useState<Stats | null>(null);
@@ -802,6 +865,9 @@ function StatsAdmin({ password }: { password: string }) {
       contentContainerStyle={styles.statsScroll}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
     >
+      {/* Online now card */}
+      <OnlineNowCard password={password} />
+
       {/* Report card */}
       <View style={[styles.sectionCard, { marginTop: 0 }]}>
         <View style={styles.settingsHeader}>
@@ -1647,6 +1713,44 @@ const styles = StyleSheet.create({
 
   // Stats
   statsScroll: { padding: 16, paddingBottom: 40, gap: 12 },
+  onlineCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+  },
+  onlineTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  onlineDotWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0F3D18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  onlineDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.success,
+  },
+  onlineTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "800" },
+  onlineSub: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  onlineBig: { color: colors.brandPrimary, fontSize: 32, fontWeight: "800" },
+  onlineBreak: { flexDirection: "row", gap: 8, marginTop: 12 },
+  onlineChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  onlineChipText: { color: colors.onSurface, fontSize: 12, fontWeight: "700" },
   monthNav: {
     flexDirection: "row",
     alignItems: "center",

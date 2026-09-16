@@ -94,6 +94,11 @@ class BlockedDay(BaseModel):
     date: str
 
 
+class HeartbeatIn(BaseModel):
+    session_id: str
+    role: str = "customer"  # "customer" | "admin"
+
+
 async def get_settings_doc() -> Settings:
     doc = await db.settings.find_one({"_id": "singleton"})
     if not doc:
@@ -129,6 +134,33 @@ async def list_slots(only_available: bool = True):
 @api_router.get("/settings", response_model=Settings)
 async def get_settings():
     return await get_settings_doc()
+
+
+@api_router.post("/heartbeat")
+async def heartbeat(payload: HeartbeatIn):
+    sid = (payload.session_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id je obavezan")
+    role = payload.role if payload.role in ("customer", "admin") else "customer"
+    now = datetime.now(timezone.utc)
+    await db.sessions.update_one(
+        {"session_id": sid},
+        {"$set": {"session_id": sid, "role": role, "last_seen": now.isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api_router.get("/admin/online")
+async def admin_online(x_admin_password: Optional[str] = Header(default=None)):
+    from datetime import timedelta
+
+    _check_admin(x_admin_password)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    docs = await db.sessions.find({"last_seen": {"$gte": cutoff}}, {"_id": 0}).to_list(500)
+    customers = sum(1 for d in docs if d.get("role") != "admin")
+    admins = sum(1 for d in docs if d.get("role") == "admin")
+    return {"online_total": len(docs), "customers": customers, "admins": admins}
 
 
 @api_router.post("/bookings", response_model=Booking)
