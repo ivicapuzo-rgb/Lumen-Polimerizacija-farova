@@ -168,10 +168,17 @@ class HeartbeatIn(BaseModel):
 
 class GalleryImage(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    storage_path: str
-    url: str
+    storage_path: str  # legacy single-image path (kept for old records)
+    url: str  # legacy single-image url
+    before_url: Optional[str] = None
+    after_url: Optional[str] = None
     caption: Optional[str] = ""
+    sort_order: float = 0
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ReorderIn(BaseModel):
+    ids: List[str]
 
 
 async def get_settings_doc() -> Settings:
@@ -241,55 +248,121 @@ async def admin_online(x_admin_password: Optional[str] = Header(default=None)):
 # ---- Gallery
 @api_router.get("/gallery", response_model=List[GalleryImage])
 async def list_gallery():
-    docs = await db.gallery.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(200)
+    docs = await db.gallery.find({}, {"_id": 0}).sort([("sort_order", 1), ("created_at", -1)]).to_list(200)
     return [GalleryImage(**d) for d in docs]
 
 
 @api_router.get("/gallery/files/{filename}")
 async def get_gallery_file(filename: str):
-    doc = await db.gallery.find_one({"storage_path": {"$regex": f"/{filename}$"}}, {"_id": 0})
+    # Search across storage_path, before_url, after_url
+    q = {
+        "$or": [
+            {"storage_path": {"$regex": f"/{filename}$"}},
+            {"before_url": {"$regex": f"/{filename}$"}},
+            {"after_url": {"$regex": f"/{filename}$"}},
+        ]
+    }
+    doc = await db.gallery.find_one(q, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Slika nije pronađena")
+    # Resolve which path this filename maps to
+    target_path = None
+    for field in ("storage_path", "before_path", "after_path"):
+        val = doc.get(field) or ""
+        if val.endswith(f"/{filename}"):
+            target_path = val
+            break
+    if not target_path:
+        target_path = doc.get("storage_path")
     try:
-        content, ctype = await run_in_threadpool(get_object, doc["storage_path"])
+        content, ctype = await run_in_threadpool(get_object, target_path)
     except Exception:
         raise HTTPException(status_code=404, detail="Slika nije pronađena")
     return Response(content=content, media_type=ctype)
 
 
-@api_router.post("/admin/gallery", response_model=GalleryImage)
-async def admin_upload_gallery(
-    file: UploadFile = File(...),
-    caption: str = Form(""),
-    x_admin_password: Optional[str] = Header(default=None),
-):
-    _check_admin(x_admin_password)
-    data = await file.read()
+def _detect_ext(upload: UploadFile) -> str:
+    if upload.filename and "." in upload.filename:
+        return "." + upload.filename.rsplit(".", 1)[1].lower()
+    return mimetypes.guess_extension(upload.content_type or "image/jpeg") or ".jpg"
+
+
+async def _upload_to_storage(upload: UploadFile) -> tuple[str, str]:
+    data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="Prazan fajl")
     if len(data) > 8 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Slika je prevelika (maks 8MB)")
-
-    ext = ""
-    if file.filename and "." in file.filename:
-        ext = "." + file.filename.rsplit(".", 1)[1].lower()
-    if not ext:
-        ext = mimetypes.guess_extension(file.content_type or "image/jpeg") or ".jpg"
-
+    ext = _detect_ext(upload)
     filename = f"{uuid.uuid4()}{ext}"
     path = f"{APP_NAME}/gallery/{filename}"
     try:
-        await run_in_threadpool(put_object, path, data, file.content_type or "image/jpeg")
+        await run_in_threadpool(put_object, path, data, upload.content_type or "image/jpeg")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Greška pri uploadu: {e}")
+    return path, f"/api/gallery/files/{filename}"
 
-    img = GalleryImage(
-        storage_path=path,
-        url=f"/api/gallery/files/{filename}",
-        caption=caption.strip(),
+
+@api_router.post("/admin/gallery", response_model=GalleryImage)
+async def admin_upload_gallery(
+    file: Optional[UploadFile] = File(None),
+    before: Optional[UploadFile] = File(None),
+    after: Optional[UploadFile] = File(None),
+    caption: str = Form(""),
+    x_admin_password: Optional[str] = Header(default=None),
+):
+    _check_admin(x_admin_password)
+
+    before_upload = before or file
+    if not before_upload:
+        raise HTTPException(status_code=400, detail="Slika je obavezna")
+
+    before_path, before_url = await _upload_to_storage(before_upload)
+    after_path: Optional[str] = None
+    after_url: Optional[str] = None
+    if after:
+        after_path, after_url = await _upload_to_storage(after)
+
+    # New records: put "before" URL in both legacy storage_path/url and before_url.
+    # Compute next sort_order (smaller = earlier).
+    top = await db.gallery.find({}, {"_id": 0, "sort_order": 1}).sort([("sort_order", 1)]).limit(1).to_list(1)
+    next_order = (top[0].get("sort_order", 0) if top else 0) - 1
+
+    img_doc = {
+        "id": str(uuid.uuid4()),
+        "storage_path": before_path,
+        "url": before_url,
+        "before_url": before_url,
+        "before_path": before_path,
+        "after_url": after_url,
+        "after_path": after_path,
+        "caption": caption.strip(),
+        "sort_order": next_order,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.gallery.insert_one(img_doc)
+    # Return public-safe fields only
+    return GalleryImage(
+        id=img_doc["id"],
+        storage_path=img_doc["storage_path"],
+        url=img_doc["url"],
+        before_url=img_doc["before_url"],
+        after_url=img_doc["after_url"],
+        caption=img_doc["caption"],
+        sort_order=img_doc["sort_order"],
+        created_at=img_doc["created_at"],
     )
-    await db.gallery.insert_one(img.dict())
-    return img
+
+
+@api_router.patch("/admin/gallery/reorder")
+async def admin_reorder_gallery(
+    payload: ReorderIn,
+    x_admin_password: Optional[str] = Header(default=None),
+):
+    _check_admin(x_admin_password)
+    for i, gid in enumerate(payload.ids):
+        await db.gallery.update_one({"id": gid}, {"$set": {"sort_order": i}})
+    return {"ok": True, "count": len(payload.ids)}
 
 
 @api_router.delete("/admin/gallery/{image_id}")

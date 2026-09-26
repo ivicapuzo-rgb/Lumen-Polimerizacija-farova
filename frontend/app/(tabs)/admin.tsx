@@ -36,6 +36,7 @@ import {
   adminListSlots,
   adminLogin,
   adminRemoveBlocked,
+  adminReorderGallery,
   adminUpdateBooking,
   adminUpdateSettings,
   adminUploadGallery,
@@ -57,6 +58,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
 
 import { usePendingBookings } from "@/src/hooks/usePendingBookings";
 import { colors } from "@/src/theme";
@@ -1061,23 +1063,32 @@ function StatsAdmin({ password }: { password: string }) {
 
 
 // ============= Gallery Admin =============
+type Asset = { uri: string; name: string; mime: string };
+
 function GalleryAdmin({ password }: { password: string }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
+  const [before, setBefore] = useState<Asset | null>(null);
+  const [after, setAfter] = useState<Asset | null>(null);
 
   const { data = [], refetch, isLoading } = useQuery({
     queryKey: ["admin", "gallery"],
     queryFn: listGallery,
   });
 
-  const pick = async () => {
+  const [items, setItems] = useState<GalleryImage[]>([]);
+  useEffect(() => {
+    setItems(data);
+  }, [data]);
+
+  const pickOne = async (setter: (a: Asset) => void) => {
     setError(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       if (!perm.canAskAgain) {
-        setError("Dozvola za galeriju je odbijena. Otvori podešavanja telefona da je uključiš.");
+        setError("Dozvola za galeriju je odbijena. Otvori podešavanja telefona.");
       } else {
         setError("Potrebna je dozvola za pristup galeriji.");
       }
@@ -1090,14 +1101,25 @@ function GalleryAdmin({ password }: { password: string }) {
       exif: false,
     });
     if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0];
+    setter({
+      uri: a.uri,
+      name: a.fileName || `photo-${Date.now()}.jpg`,
+      mime: a.mimeType || "image/jpeg",
+    });
+  };
 
+  const upload = async () => {
+    if (!before) {
+      setError("Prvo dodaj sliku 'PRE'");
+      return;
+    }
     setBusy(true);
+    setError(null);
     try {
-      for (const a of res.assets) {
-        const name = a.fileName || `photo-${Date.now()}.jpg`;
-        const mime = a.mimeType || "image/jpeg";
-        await adminUploadGallery(password, a.uri, name, mime, caption);
-      }
+      await adminUploadGallery(password, before, after, caption);
+      setBefore(null);
+      setAfter(null);
       setCaption("");
       qc.invalidateQueries({ queryKey: ["gallery"] });
       await refetch();
@@ -1119,78 +1141,159 @@ function GalleryAdmin({ password }: { password: string }) {
     } catch {}
   };
 
-  return (
-    <ScrollView contentContainerStyle={styles.settingsScroll}>
-      <View style={styles.settingsCard}>
-        <View style={styles.settingsHeader}>
-          <Icon name="image-plus" size={22} color={colors.brandPrimary} />
-          <Text style={styles.settingsTitle}>Dodaj sliku farova</Text>
-        </View>
-        <Text style={styles.settingsHint}>
-          Slike koje dodaš ovde vide se svim klijentima na naslovnoj strani.
-        </Text>
+  const persistOrder = async (newOrder: GalleryImage[]) => {
+    setItems(newOrder);
+    try {
+      await adminReorderGallery(password, newOrder.map((g) => g.id));
+      qc.invalidateQueries({ queryKey: ["gallery"] });
+    } catch {}
+  };
 
-        <Text style={styles.label}>Opis (opciono)</Text>
-        <TextInput
-          testID="gallery-caption-input"
-          style={styles.priceInput}
-          value={caption}
-          onChangeText={setCaption}
-          placeholder="Npr. Golf 5 — pre/posle"
-          placeholderTextColor={colors.muted}
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<GalleryImage>) => {
+    const hasPair = !!(item.before_url && item.after_url);
+    return (
+      <View
+        style={[styles.reorderRow, isActive && { backgroundColor: colors.brandTertiary, borderColor: colors.brandPrimary }]}
+        testID={`admin-gallery-${item.id}`}
+      >
+        <Pressable onLongPress={drag} delayLongPress={150} style={styles.dragHandle} testID={`drag-${item.id}`}>
+          <Icon name="drag-vertical" size={22} color={colors.muted} />
+        </Pressable>
+        <Image
+          source={galleryImageUrl(item.before_url || item.url)}
+          style={styles.reorderThumb}
+          contentFit="cover"
         />
-
-        {error ? <Text style={styles.errorInline}>{error}</Text> : null}
-
+        <View style={{ flex: 1 }}>
+          <View style={styles.reorderTop}>
+            {hasPair ? (
+              <View style={styles.pairPill}>
+                <Icon name="compare" size={12} color={colors.onBrandPrimary} />
+                <Text style={styles.pairPillText}>Pre/Posle</Text>
+              </View>
+            ) : (
+              <View style={[styles.pairPill, { backgroundColor: colors.surfaceTertiary }]}>
+                <Icon name="image-outline" size={12} color={colors.onSurface} />
+                <Text style={[styles.pairPillText, { color: colors.onSurface }]}>Jedna slika</Text>
+              </View>
+            )}
+          </View>
+          {item.caption ? <Text style={styles.reorderCap} numberOfLines={2}>{item.caption}</Text> : null}
+        </View>
         <Pressable
-          testID="gallery-pick-btn"
-          style={[styles.saveBtn, { marginTop: 12 }]}
-          onPress={pick}
-          disabled={busy}
+          testID={`delete-gallery-${item.id}`}
+          style={styles.reorderDeleteBtn}
+          onPress={() => remove(item.id)}
         >
-          {busy ? (
-            <ActivityIndicator color={colors.onBrandPrimary} />
-          ) : (
-            <>
-              <Icon name="cloud-upload-outline" size={20} color={colors.onBrandPrimary} />
-              <Text style={styles.saveBtnText}>Odaberi i otpremi</Text>
-            </>
-          )}
+          <Icon name="trash-can-outline" size={18} color={colors.onError} />
         </Pressable>
       </View>
+    );
+  };
 
-      <View style={styles.settingsCard}>
-        <View style={styles.settingsHeader}>
-          <Icon name="image-multiple-outline" size={22} color={colors.brandPrimary} />
-          <Text style={styles.settingsTitle}>Otpremljeno ({data.length})</Text>
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        contentContainerStyle={styles.settingsScroll}
+        nestedScrollEnabled
+      >
+        <View style={styles.settingsCard}>
+          <View style={styles.settingsHeader}>
+            <Icon name="image-plus" size={22} color={colors.brandPrimary} />
+            <Text style={styles.settingsTitle}>Dodaj rad</Text>
+          </View>
+          <Text style={styles.settingsHint}>
+            Odaberi sliku PRE (obavezna). Ako dodaš i POSLE, klijent dobija interaktivni slajder.
+          </Text>
+
+          <View style={styles.pairRow}>
+            <Pressable
+              testID="pick-before-btn"
+              style={[styles.pickerCard, before && styles.pickerCardFilled]}
+              onPress={() => pickOne(setBefore)}
+            >
+              {before ? (
+                <Image source={before.uri} style={styles.pickerThumb} contentFit="cover" />
+              ) : (
+                <>
+                  <Icon name="image-plus" size={22} color={colors.muted} />
+                  <Text style={styles.pickerLabel}>PRE (obavezno)</Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              testID="pick-after-btn"
+              style={[styles.pickerCard, after && styles.pickerCardFilled]}
+              onPress={() => pickOne(setAfter)}
+            >
+              {after ? (
+                <Image source={after.uri} style={styles.pickerThumb} contentFit="cover" />
+              ) : (
+                <>
+                  <Icon name="car-light-high" size={22} color={colors.muted} />
+                  <Text style={styles.pickerLabel}>POSLE (opciono)</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+
+          <Text style={styles.label}>Opis (opciono)</Text>
+          <TextInput
+            testID="gallery-caption-input"
+            style={styles.priceInput}
+            value={caption}
+            onChangeText={setCaption}
+            placeholder="Npr. Golf 5 — pre/posle"
+            placeholderTextColor={colors.muted}
+          />
+
+          {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+
+          <Pressable
+            testID="gallery-upload-btn"
+            style={[styles.saveBtn, { marginTop: 12 }, (!before || busy) && { opacity: 0.6 }]}
+            onPress={upload}
+            disabled={busy || !before}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.onBrandPrimary} />
+            ) : (
+              <>
+                <Icon name="cloud-upload-outline" size={20} color={colors.onBrandPrimary} />
+                <Text style={styles.saveBtnText}>Otpremi</Text>
+              </>
+            )}
+          </Pressable>
         </View>
-        {isLoading ? (
-          <View style={{ padding: 20, alignItems: "center" }}>
-            <ActivityIndicator color={colors.brandPrimary} />
+
+        <View style={[styles.settingsCard, { paddingBottom: 8 }]}>
+          <View style={styles.settingsHeader}>
+            <Icon name="drag" size={22} color={colors.brandPrimary} />
+            <Text style={styles.settingsTitle}>Redosled ({items.length})</Text>
           </View>
-        ) : data.length === 0 ? (
-          <Text style={styles.settingsHint}>Još nema fotografija. Dodaj prvu iznad.</Text>
-        ) : (
-          <View style={styles.galleryGrid}>
-            {data.map((img) => (
-              <View key={img.id} style={styles.galleryTile} testID={`admin-gallery-${img.id}`}>
-                <Image source={galleryImageUrl(img.url)} style={styles.galleryTileImg} contentFit="cover" />
-                <Pressable
-                  testID={`delete-gallery-${img.id}`}
-                  style={styles.galleryDeleteBtn}
-                  onPress={() => remove(img.id)}
-                >
-                  <Icon name="trash-can-outline" size={16} color={colors.onError} />
-                </Pressable>
-                {img.caption ? (
-                  <Text style={styles.galleryTileCap} numberOfLines={2}>{img.caption}</Text>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </ScrollView>
+          <Text style={styles.settingsHint}>
+            Drži i prevuci slike da promeniš redosled. Gornje ide prve klijentu.
+          </Text>
+          {isLoading ? (
+            <View style={{ padding: 20, alignItems: "center" }}>
+              <ActivityIndicator color={colors.brandPrimary} />
+            </View>
+          ) : items.length === 0 ? (
+            <Text style={styles.settingsHint}>Još nema fotografija. Otpremi prvu iznad.</Text>
+          ) : (
+            <DraggableFlatList
+              data={items}
+              keyExtractor={(g) => g.id}
+              onDragEnd={({ data: newData }) => persistOrder(newData)}
+              renderItem={renderItem}
+              scrollEnabled={false}
+              activationDistance={12}
+              containerStyle={{ marginTop: 6 }}
+            />
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1615,6 +1718,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     elevation: 6,
+    boxShadow: "0 4px 10px rgba(0,0,0,0.4)",
     shadowColor: "#000",
     shadowOpacity: 0.4,
     shadowRadius: 10,
@@ -1751,6 +1855,59 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   galleryTileCap: { color: colors.onSurfaceSecondary, fontSize: 12, padding: 8, lineHeight: 16 },
+  // Admin gallery — pair pickers
+  pairRow: { flexDirection: "row", gap: 10, marginTop: 8 },
+  pickerCard: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    gap: 6,
+  },
+  pickerCardFilled: { borderStyle: "solid", borderColor: colors.brandPrimary },
+  pickerLabel: { color: colors.muted, fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+  pickerThumb: { width: "100%", height: "100%" },
+  // Reorder rows
+  reorderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dragHandle: { width: 28, alignItems: "center", justifyContent: "center" },
+  reorderThumb: { width: 60, height: 60, borderRadius: 8, backgroundColor: colors.surface },
+  reorderTop: { flexDirection: "row", alignItems: "center" },
+  pairPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+  },
+  pairPillText: { color: colors.onBrandPrimary, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  reorderCap: { color: colors.onSurfaceSecondary, fontSize: 12, marginTop: 4 },
+  reorderDeleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.error,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   // Settings tab
   settingsScroll: { padding: 16, paddingBottom: 40, gap: 16 },
   settingsCard: {

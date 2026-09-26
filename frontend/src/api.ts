@@ -64,7 +64,10 @@ export type GalleryImage = {
   id: string;
   storage_path: string;
   url: string;
+  before_url?: string | null;
+  after_url?: string | null;
   caption?: string;
+  sort_order?: number;
   created_at: string;
 };
 
@@ -126,23 +129,26 @@ export const listGallery = () => request<GalleryImage[]>("/gallery");
 
 export const adminUploadGallery = async (
   password: string,
-  fileUri: string,
-  filename: string,
-  mimeType: string,
+  beforeFile: { uri: string; name: string; mime: string },
+  afterFile: { uri: string; name: string; mime: string } | null,
   caption: string,
 ): Promise<GalleryImage> => {
   const form = new FormData();
   form.append("caption", caption);
-  // For web the URI is blob:...; for native it's file:...
-  // Use platform-appropriate body shape.
-  // @ts-ignore
-  if (typeof window !== "undefined" && fileUri.startsWith("blob:")) {
-    const blob = await (await fetch(fileUri)).blob();
-    form.append("file", blob, filename);
-  } else {
-    // @ts-ignore React Native FormData accepts { uri, name, type }
-    form.append("file", { uri: fileUri, name: filename, type: mimeType });
-  }
+
+  const appendFile = async (field: string, f: { uri: string; name: string; mime: string }) => {
+    if (typeof window !== "undefined" && f.uri.startsWith("blob:")) {
+      const blob = await (await fetch(f.uri)).blob();
+      form.append(field, blob, f.name);
+    } else {
+      // @ts-ignore RN FormData
+      form.append(field, { uri: f.uri, name: f.name, type: f.mime });
+    }
+  };
+
+  await appendFile("before", beforeFile);
+  if (afterFile) await appendFile("after", afterFile);
+
   const res = await fetch(`${BASE}/api/admin/gallery`, {
     method: "POST",
     headers: { "x-admin-password": password },
@@ -158,6 +164,13 @@ export const adminUploadGallery = async (
   }
   return res.json();
 };
+
+export const adminReorderGallery = (password: string, ids: string[]) =>
+  request<{ ok: boolean; count: number }>("/admin/gallery/reorder", {
+    method: "PATCH",
+    headers: adminHeaders(password),
+    body: JSON.stringify({ ids }),
+  });
 
 export const adminDeleteGallery = (password: string, imageId: string) =>
   request<{ ok: boolean }>(`/admin/gallery/${imageId}`, {

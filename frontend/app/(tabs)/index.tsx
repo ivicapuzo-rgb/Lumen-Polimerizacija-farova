@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -20,10 +20,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 
-import { listSlots, getSettings, listGallery, galleryImageUrl, Slot } from "@/src/api";
+import { listSlots, getSettings, listGallery, galleryImageUrl, GalleryImage, Slot } from "@/src/api";
 import { colors } from "@/src/theme";
+import { BeforeAfterSlider } from "@/src/components/BeforeAfterSlider";
+import { FullscreenImage } from "@/src/components/FullscreenImage";
 
-const HERO = require("@/assets/images/car-hero.png");
+const HERO =
+  "https://images.unsplash.com/photo-1730742298439-6d82f9edc3c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHxjYXIlMjBoZWFkbGlnaHQlMjBkYXJrfGVufDB8fHx8MTc4OTI4NDIwM3ww&ixlib=rb-4.1.0&q=85";
 
 const DAY_NAMES = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"];
@@ -51,6 +54,8 @@ export default function SlotsScreen() {
     queryKey: ["gallery"],
     queryFn: listGallery,
   });
+
+  const [preview, setPreview] = useState<GalleryImage | null>(null);
 
   // Blink twice animation for the hero headlights
   const flash = useRef(new Animated.Value(0)).current;
@@ -172,7 +177,7 @@ export default function SlotsScreen() {
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />
           }
-          ListHeaderComponent={
+          ListFooterComponent={
             gallery && gallery.length > 0 ? (
               <View style={styles.gallerySection} testID="home-gallery">
                 <View style={styles.galleryHeader}>
@@ -184,12 +189,36 @@ export default function SlotsScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{ gap: 10, paddingRight: 4 }}
                 >
-                  {gallery.map((g) => (
-                    <View key={g.id} style={styles.galleryCard} testID={`gallery-${g.id}`}>
-                      <Image source={galleryImageUrl(g.url)} style={styles.galleryImg} contentFit="cover" />
-                      {g.caption ? <Text style={styles.galleryCap} numberOfLines={2}>{g.caption}</Text> : null}
-                    </View>
-                  ))}
+                  {gallery.map((g) => {
+                    const hasPair = !!(g.before_url && g.after_url);
+                    return (
+                      <Pressable
+                        key={g.id}
+                        testID={`gallery-${g.id}`}
+                        onPress={() => setPreview(g)}
+                        style={styles.galleryCard}
+                      >
+                        {hasPair ? (
+                          <BeforeAfterSlider
+                            beforeUrl={galleryImageUrl(g.before_url!)}
+                            afterUrl={galleryImageUrl(g.after_url!)}
+                            height={160}
+                          />
+                        ) : (
+                          <Image
+                            source={galleryImageUrl(g.before_url || g.url)}
+                            style={styles.galleryImg}
+                            contentFit="cover"
+                          />
+                        )}
+                        {g.caption ? (
+                          <Text style={styles.galleryCap} numberOfLines={2}>
+                            {g.caption}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </View>
             ) : null
@@ -226,6 +255,13 @@ export default function SlotsScreen() {
           }}
         />
       )}
+      <FullscreenImage
+        visible={!!preview}
+        onClose={() => setPreview(null)}
+        imageUrl={preview ? galleryImageUrl(preview.before_url || preview.url) : undefined}
+        beforeUrl={preview?.before_url ? galleryImageUrl(preview.before_url) : undefined}
+        afterUrl={preview?.after_url ? galleryImageUrl(preview.after_url) : undefined}
+      />
     </View>
   );
 }
