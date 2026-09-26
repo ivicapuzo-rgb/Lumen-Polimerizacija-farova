@@ -60,6 +60,14 @@ export type Report = {
   bookings: Booking[];
 };
 
+export type GalleryImage = {
+  id: string;
+  storage_path: string;
+  url: string;
+  caption?: string;
+  created_at: string;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}/api${path}`, {
     ...options,
@@ -106,6 +114,54 @@ export const heartbeat = (session_id: string, role: "customer" | "admin") =>
 
 export const adminGetOnline = (password: string) =>
   request<{ online_total: number; customers: number; admins: number }>("/admin/online", {
+    headers: adminHeaders(password),
+  });
+
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+export const galleryImageUrl = (url: string) =>
+  url.startsWith("http") ? url : `${BASE}${url}`;
+
+export const listGallery = () => request<GalleryImage[]>("/gallery");
+
+export const adminUploadGallery = async (
+  password: string,
+  fileUri: string,
+  filename: string,
+  mimeType: string,
+  caption: string,
+): Promise<GalleryImage> => {
+  const form = new FormData();
+  form.append("caption", caption);
+  // For web the URI is blob:...; for native it's file:...
+  // Use platform-appropriate body shape.
+  // @ts-ignore
+  if (typeof window !== "undefined" && fileUri.startsWith("blob:")) {
+    const blob = await (await fetch(fileUri)).blob();
+    form.append("file", blob, filename);
+  } else {
+    // @ts-ignore React Native FormData accepts { uri, name, type }
+    form.append("file", { uri: fileUri, name: filename, type: mimeType });
+  }
+  const res = await fetch(`${BASE}/api/admin/gallery`, {
+    method: "POST",
+    headers: { "x-admin-password": password },
+    body: form as any,
+  });
+  if (!res.ok) {
+    let msg = "Greška prilikom uploada";
+    try {
+      const d = await res.json();
+      msg = d.detail || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+};
+
+export const adminDeleteGallery = (password: string, imageId: string) =>
+  request<{ ok: boolean }>(`/admin/gallery/${imageId}`, {
+    method: "DELETE",
     headers: adminHeaders(password),
   });
 

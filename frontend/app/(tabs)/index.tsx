@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,11 +20,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 
-import { listSlots, getSettings, Slot } from "@/src/api";
+import { listSlots, getSettings, listGallery, galleryImageUrl, Slot } from "@/src/api";
 import { colors } from "@/src/theme";
 
-const HERO =
-  "https://images.unsplash.com/photo-1730742298439-6d82f9edc3c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHxjYXIlMjBoZWFkbGlnaHQlMjBkYXJrfGVufDB8fHx8MTc4OTI4NDIwM3ww&ixlib=rb-4.1.0&q=85";
+const HERO = require("@/assets/images/car-hero.png");
 
 const DAY_NAMES = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"];
@@ -45,6 +46,29 @@ export default function SlotsScreen() {
     queryKey: ["settings"],
     queryFn: getSettings,
   });
+
+  const { data: gallery } = useQuery({
+    queryKey: ["gallery"],
+    queryFn: listGallery,
+  });
+
+  // Blink twice animation for the hero headlights
+  const flash = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const useNative = Platform.OS !== "web";
+    const blink = () =>
+      Animated.sequence([
+        Animated.timing(flash, { toValue: 1, duration: 140, useNativeDriver: useNative }),
+        Animated.timing(flash, { toValue: 0, duration: 220, useNativeDriver: useNative }),
+      ]);
+    Animated.sequence([
+      Animated.delay(500),
+      blink(),
+      Animated.delay(180),
+      blink(),
+    ]).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Slot[]>();
@@ -76,6 +100,16 @@ export default function SlotsScreen() {
       {/* Hero */}
       <View style={styles.hero}>
         <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: "#FFF6C2",
+              opacity: flash.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] }),
+              pointerEvents: "none",
+            },
+          ]}
+        />
         <LinearGradient
           colors={["rgba(13,13,13,0.2)", "rgba(13,13,13,0.7)", "rgba(13,13,13,1)"]}
           style={StyleSheet.absoluteFill}
@@ -137,6 +171,28 @@ export default function SlotsScreen() {
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />
+          }
+          ListHeaderComponent={
+            gallery && gallery.length > 0 ? (
+              <View style={styles.gallerySection} testID="home-gallery">
+                <View style={styles.galleryHeader}>
+                  <Icon name="image-multiple-outline" size={18} color={colors.brandPrimary} />
+                  <Text style={styles.galleryTitle}>Naši radovi</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 10, paddingRight: 4 }}
+                >
+                  {gallery.map((g) => (
+                    <View key={g.id} style={styles.galleryCard} testID={`gallery-${g.id}`}>
+                      <Image source={galleryImageUrl(g.url)} style={styles.galleryImg} contentFit="cover" />
+                      {g.caption ? <Text style={styles.galleryCap} numberOfLines={2}>{g.caption}</Text> : null}
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null
           }
           renderItem={({ item }) => {
             const f = formatDate(item.date);
@@ -223,6 +279,19 @@ const styles = StyleSheet.create({
   },
   retryText: { color: colors.onBrandPrimary, fontWeight: "700" },
   listContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32 },
+  gallerySection: { marginBottom: 20 },
+  galleryHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  galleryTitle: { color: colors.onSurface, fontSize: 16, fontWeight: "800" },
+  galleryCard: {
+    width: 220,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  galleryImg: { width: "100%", height: 160, backgroundColor: colors.surfaceTertiary },
+  galleryCap: { color: colors.onSurfaceSecondary, fontSize: 12, padding: 10, lineHeight: 16 },
   dayGroup: { marginBottom: 20 },
   dayHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
   dayChip: {

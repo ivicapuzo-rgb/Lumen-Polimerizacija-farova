@@ -26,6 +26,7 @@ import {
   adminCreateSlot,
   adminDeleteAllBookings,
   adminDeleteAllSlots,
+  adminDeleteGallery,
   adminDeleteSlot,
   adminGetOnline,
   adminGetReport,
@@ -37,10 +38,14 @@ import {
   adminRemoveBlocked,
   adminUpdateBooking,
   adminUpdateSettings,
+  adminUploadGallery,
   BlockedDay,
   Booking,
   clearAdminPw,
+  galleryImageUrl,
+  GalleryImage,
   getSettings,
+  listGallery,
   loadAdminPw,
   Report,
   saveAdminPw,
@@ -50,7 +55,8 @@ import {
 } from "@/src/api";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { useQuery } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { usePendingBookings } from "@/src/hooks/usePendingBookings";
 import { colors } from "@/src/theme";
@@ -80,7 +86,7 @@ export default function AdminScreen() {
   const [authed, setAuthed] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [tab, setTab] = useState<"slots" | "bookings" | "stats" | "settings">("bookings");
+  const [tab, setTab] = useState<"slots" | "bookings" | "stats" | "gallery" | "settings">("bookings");
 
   useEffect(() => {
     loadAdminPw().then((pw) => {
@@ -212,6 +218,13 @@ export default function AdminScreen() {
           <Text style={[styles.tabText, tab === "stats" && styles.tabTextActive]}>Statistika</Text>
         </Pressable>
         <Pressable
+          testID="admin-tab-gallery"
+          style={[styles.tab, tab === "gallery" && styles.tabActive]}
+          onPress={() => setTab("gallery")}
+        >
+          <Text style={[styles.tabText, tab === "gallery" && styles.tabTextActive]}>Galerija</Text>
+        </Pressable>
+        <Pressable
           testID="admin-tab-settings"
           style={[styles.tab, tab === "settings" && styles.tabActive]}
           onPress={() => setTab("settings")}
@@ -226,6 +239,8 @@ export default function AdminScreen() {
         <BookingsAdmin password={password} />
       ) : tab === "stats" ? (
         <StatsAdmin password={password} />
+      ) : tab === "gallery" ? (
+        <GalleryAdmin password={password} />
       ) : (
         <SettingsAdmin password={password} />
       )}
@@ -1044,6 +1059,142 @@ function StatsAdmin({ password }: { password: string }) {
 }
 
 
+
+// ============= Gallery Admin =============
+function GalleryAdmin({ password }: { password: string }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [caption, setCaption] = useState("");
+
+  const { data = [], refetch, isLoading } = useQuery({
+    queryKey: ["admin", "gallery"],
+    queryFn: listGallery,
+  });
+
+  const pick = async () => {
+    setError(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      if (!perm.canAskAgain) {
+        setError("Dozvola za galeriju je odbijena. Otvori podešavanja telefona da je uključiš.");
+      } else {
+        setError("Potrebna je dozvola za pristup galeriji.");
+      }
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 0.7,
+      exif: false,
+    });
+    if (res.canceled || !res.assets?.length) return;
+
+    setBusy(true);
+    try {
+      for (const a of res.assets) {
+        const name = a.fileName || `photo-${Date.now()}.jpg`;
+        const mime = a.mimeType || "image/jpeg";
+        await adminUploadGallery(password, a.uri, name, mime, caption);
+      }
+      setCaption("");
+      qc.invalidateQueries({ queryKey: ["gallery"] });
+      await refetch();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setError(e.message || "Greška prilikom uploada");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await adminDeleteGallery(password, id);
+      qc.invalidateQueries({ queryKey: ["gallery"] });
+      await refetch();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.settingsScroll}>
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="image-plus" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Dodaj sliku farova</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Slike koje dodaš ovde vide se svim klijentima na naslovnoj strani.
+        </Text>
+
+        <Text style={styles.label}>Opis (opciono)</Text>
+        <TextInput
+          testID="gallery-caption-input"
+          style={styles.priceInput}
+          value={caption}
+          onChangeText={setCaption}
+          placeholder="Npr. Golf 5 — pre/posle"
+          placeholderTextColor={colors.muted}
+        />
+
+        {error ? <Text style={styles.errorInline}>{error}</Text> : null}
+
+        <Pressable
+          testID="gallery-pick-btn"
+          style={[styles.saveBtn, { marginTop: 12 }]}
+          onPress={pick}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.onBrandPrimary} />
+          ) : (
+            <>
+              <Icon name="cloud-upload-outline" size={20} color={colors.onBrandPrimary} />
+              <Text style={styles.saveBtnText}>Odaberi i otpremi</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="image-multiple-outline" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Otpremljeno ({data.length})</Text>
+        </View>
+        {isLoading ? (
+          <View style={{ padding: 20, alignItems: "center" }}>
+            <ActivityIndicator color={colors.brandPrimary} />
+          </View>
+        ) : data.length === 0 ? (
+          <Text style={styles.settingsHint}>Još nema fotografija. Dodaj prvu iznad.</Text>
+        ) : (
+          <View style={styles.galleryGrid}>
+            {data.map((img) => (
+              <View key={img.id} style={styles.galleryTile} testID={`admin-gallery-${img.id}`}>
+                <Image source={galleryImageUrl(img.url)} style={styles.galleryTileImg} contentFit="cover" />
+                <Pressable
+                  testID={`delete-gallery-${img.id}`}
+                  style={styles.galleryDeleteBtn}
+                  onPress={() => remove(img.id)}
+                >
+                  <Icon name="trash-can-outline" size={16} color={colors.onError} />
+                </Pressable>
+                {img.caption ? (
+                  <Text style={styles.galleryTileCap} numberOfLines={2}>{img.caption}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    </ScrollView>
+  );
+}
+
+
 // ============= Settings Admin =============
 function SettingsAdmin({ password }: { password: string }) {
   const insets = useSafeAreaInsets();
@@ -1577,6 +1728,29 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   mapsLinkText: { color: colors.onBrandPrimary, fontSize: 12, fontWeight: "800" },
+  // Admin gallery
+  galleryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  galleryTile: {
+    width: "48%",
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  galleryTileImg: { width: "100%", height: 130, backgroundColor: colors.surface },
+  galleryDeleteBtn: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: "rgba(211,47,47,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  galleryTileCap: { color: colors.onSurfaceSecondary, fontSize: 12, padding: 8, lineHeight: 16 },
   // Settings tab
   settingsScroll: { padding: 16, paddingBottom: 40, gap: 16 },
   settingsCard: {

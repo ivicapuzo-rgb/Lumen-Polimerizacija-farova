@@ -1,14 +1,17 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Header, UploadFile, File, Form, Response
+from fastapi.concurrency import run_in_threadpool
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import mimetypes
+import uuid
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
-import uuid
 from datetime import datetime, timezone
+import requests
 
 
 ROOT_DIR = Path(__file__).parent
@@ -20,6 +23,70 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
+
+# Emergent Object Storage
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "lumen-service"
+_storage_key: Optional[str] = None
+
+
+def init_storage() -> Optional[str]:
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    if not EMERGENT_KEY:
+        return None
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json().get("storage_key")
+    return _storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    if not key:
+        raise RuntimeError("Storage nije konfigurisan")
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data,
+        timeout=120,
+    )
+    if resp.status_code == 503:
+        # stale key — retry once
+        globals()["_storage_key"] = None
+        key = init_storage()
+        resp = requests.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            data=data,
+            timeout=120,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str) -> tuple[bytes, str]:
+    key = init_storage()
+    if not key:
+        raise RuntimeError("Storage nije konfigurisan")
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=60,
+    )
+    if resp.status_code == 503:
+        globals()["_storage_key"] = None
+        key = init_storage()
+        resp = requests.get(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key},
+            timeout=60,
+        )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -99,6 +166,14 @@ class HeartbeatIn(BaseModel):
     role: str = "customer"  # "customer" | "admin"
 
 
+class GalleryImage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    storage_path: str
+    url: str
+    caption: Optional[str] = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 async def get_settings_doc() -> Settings:
     doc = await db.settings.find_one({"_id": "singleton"})
     if not doc:
@@ -161,6 +236,70 @@ async def admin_online(x_admin_password: Optional[str] = Header(default=None)):
     customers = sum(1 for d in docs if d.get("role") != "admin")
     admins = sum(1 for d in docs if d.get("role") == "admin")
     return {"online_total": len(docs), "customers": customers, "admins": admins}
+
+
+# ---- Gallery
+@api_router.get("/gallery", response_model=List[GalleryImage])
+async def list_gallery():
+    docs = await db.gallery.find({}, {"_id": 0}).sort([("created_at", -1)]).to_list(200)
+    return [GalleryImage(**d) for d in docs]
+
+
+@api_router.get("/gallery/files/{filename}")
+async def get_gallery_file(filename: str):
+    doc = await db.gallery.find_one({"storage_path": {"$regex": f"/{filename}$"}}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Slika nije pronađena")
+    try:
+        content, ctype = await run_in_threadpool(get_object, doc["storage_path"])
+    except Exception:
+        raise HTTPException(status_code=404, detail="Slika nije pronađena")
+    return Response(content=content, media_type=ctype)
+
+
+@api_router.post("/admin/gallery", response_model=GalleryImage)
+async def admin_upload_gallery(
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    x_admin_password: Optional[str] = Header(default=None),
+):
+    _check_admin(x_admin_password)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Prazan fajl")
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Slika je prevelika (maks 8MB)")
+
+    ext = ""
+    if file.filename and "." in file.filename:
+        ext = "." + file.filename.rsplit(".", 1)[1].lower()
+    if not ext:
+        ext = mimetypes.guess_extension(file.content_type or "image/jpeg") or ".jpg"
+
+    filename = f"{uuid.uuid4()}{ext}"
+    path = f"{APP_NAME}/gallery/{filename}"
+    try:
+        await run_in_threadpool(put_object, path, data, file.content_type or "image/jpeg")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Greška pri uploadu: {e}")
+
+    img = GalleryImage(
+        storage_path=path,
+        url=f"/api/gallery/files/{filename}",
+        caption=caption.strip(),
+    )
+    await db.gallery.insert_one(img.dict())
+    return img
+
+
+@api_router.delete("/admin/gallery/{image_id}")
+async def admin_delete_gallery(image_id: str, x_admin_password: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_password)
+    doc = await db.gallery.find_one({"id": image_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Slika nije pronađena")
+    await db.gallery.delete_one({"id": image_id})
+    return {"ok": True}
 
 
 @api_router.post("/bookings", response_model=Booking)

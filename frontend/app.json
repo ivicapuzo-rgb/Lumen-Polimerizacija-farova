@@ -36,9 +36,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-image.png",
-          "imageWidth": 200,
+          "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#FF9800"
         }
       ],
       "expo-font",
@@ -47,6 +47,12 @@
       "expo-web-browser",
       "expo-status-bar",
       "@react-native-vector-icons/material-design-icons",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Dozvoli pristup galeriji da bi otpremio slike farova"
+        }
+      ],
       [
         "expo-location",
         {
