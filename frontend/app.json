@@ -11,7 +11,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.headlampslots.fhvtsl",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Pošalji tačnu adresu za dolazak na lokaciju"
+        "NSLocationWhenInUseUsageDescription": "Pošalji tačnu adresu za dolazak na lokaciju",
+        "NSCameraUsageDescription": "Snimi novu fotku farova za galeriju",
+        "NSPhotoLibraryUsageDescription": "Otpremi sliku farova iz galerije"
       }
     },
     "android": {
@@ -22,7 +24,9 @@
       "package": "com.emergent.headlampslots.fhvtsl",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -50,7 +54,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Dozvoli pristup galeriji da bi otpremio slike farova"
+          "photosPermission": "Dozvoli pristup galeriji da bi otpremio slike farova",
+          "cameraPermission": "Dozvoli pristup kameri da bi snimio novu fotku farova"
         }
       ],
       [

@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 8 (Admin Settings: share_url + gallery_visible) tested end-to-end. Backend: 10/10 pytest cases PASS (test_settings_iter8.py). GET /api/settings now returns both new fields with correct types (share_url:str, gallery_visible:bool). PATCH /api/admin/settings persists share_url (accepts any string incl. non-URLs, strips whitespace, empty string clears) and gallery_visible (bool). Non-clobber verified: patching only {price} preserves share_url and gallery_visible; patching only one new field preserves the other. Auth guard: PATCH without header -> 401, wrong password -> 401. Frontend: Admin login with 'puzopb' works, Settings tab renders both new cards. share-url-input, save-share-url-btn, gallery-visibility-toggle testIDs all present. Saving a share URL from UI persists (verified via subsequent GET /api/settings returning the exact URL). Toggle gallery visibility from UI persists as bool. Home screen integration verified end-to-end: with 1 uploaded gallery image + gallery_visible=true, home-gallery section renders 'Naši radovi' with the watermarked image; with gallery_visible=false, home-gallery is completely absent from the DOM after reload. home-share-btn still present on hero. Only carried-over 'shadow*' RN Web deprecation warning remains (from iter5-7).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "styles.fab (admin.tsx)", "issue": "React Native Web deprecation warning: 'shadow*' style props are deprecated, use 'boxShadow'. Non-blocking, carried over from previous iterations. Reference: /app/frontend/app/(tabs)/admin.tsx styles.fab"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_settings_iter8.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "action_items": [
+    "(Optional / low priority) Migrate remaining 'shadow*' styles to 'boxShadow' to silence the RN Web deprecation warning (carried over from prior iterations)."
+  ],
+  "critical_code_review_comments": [
+    "server.py Settings/SettingsUpdate models correctly add share_url:str='' and gallery_visible:bool=True with Optional fields for the update DTO. admin_update_settings only writes keys that are not None, so partial PATCH does not clobber other fields (verified in test_patch_price_does_not_clobber_share_url_and_gallery).",
+    "get_settings_doc() coerces gallery_visible via bool(...) and defaults share_url to '' — safe against legacy docs missing these keys.",
+    "admin.tsx SettingsAdmin uses optimistic toggle for gallery_visible with rollback on error (lines 1500-1514) — good UX.",
+    "admin.tsx share URL client-side validation (^https?://) matches the requirement 'only frontend validates'. Backend accepts any string as documented (verified test_patch_share_url_accepts_any_string).",
+    "index.tsx line 183: `gallery && gallery.length > 0 && settings?.gallery_visible !== false` correctly hides the section when explicitly false while defaulting to visible when settings is null/undefined."
+  ],
+  "updated_files": ["/app/backend/tests/test_settings_iter8.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% of admin Settings + home-gallery integration flows"},
+  "seed_data_creation": "Uploaded 1 small blue JPEG (id=33ee8bd4-4f86-45ba-a79a-783c11dbf128, caption=test-iter8) to /api/admin/gallery during test — DELETED at teardown. Settings temporarily mutated (share_url, gallery_visible, price=3333) then RESET to original values via module-scoped autouse fixture and manual cleanup in Playwright script. Final backend state: price=2500, share_url='', gallery_visible=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin password: puzopb. Backend URL: EXPO_PUBLIC_BACKEND_URL from /app/frontend/.env. New settings fields: share_url (str), gallery_visible (bool). Home gallery hides when settings.gallery_visible === false. testIDs: share-url-input, save-share-url-btn, gallery-visibility-toggle, home-gallery, home-share-btn. Existing test files in /app/backend/tests/ (test_lumen_api.py, test_gallery*.py, test_watermark_iter7.py, test_settings_iter8.py) all remain green.",
+  "rca_of_issue": "N/A — no defects found. All iter-8 features (share_url persistence, gallery_visible toggle, home-screen conditional rendering) work correctly end-to-end."
+}

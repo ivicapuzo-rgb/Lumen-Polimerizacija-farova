@@ -43,9 +43,11 @@ export default function BookingForm() {
     const priceLine = settings
       ? `Cena je ${settings.price.toLocaleString("sr-RS")} ${settings.currency} po vozilu.`
       : "";
+    const url = (settings?.share_url || "").trim();
+    const linkLine = url ? ` Preuzmi aplikaciju: ${url}` : "";
     try {
       await Share.share({
-        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.`,
+        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.${linkLine}`,
       });
     } catch {}
   };

@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 7 (LUMEN watermark + camera picker sheet + fullscreen 3-mode tabs) tested end-to-end. Backend: 8/8 pytest cases PASS. Watermark is decoded and verified — amber (#FF9800) pixels are present in the bottom-right region for both single uploads and BOTH files of a before/after pair (fetched via /api/gallery/files/{fn} and parsed with PIL). Content-Type normalization confirmed: JPEG upload -> extension .jpg + content-type image/jpeg; PNG upload -> .png + content-type image/png (backend correctly branches on the source content_type in _watermark_bytes and returns matching extension in _upload_to_storage). Regressions all pass: 25 seeded slots present, admin login (puzopb) OK + wrong password 401, PATCH reorder wrong password 401, full booking flow (pending -> confirmed -> completed -> rejected) works, car_brand/car_model persist. Frontend: admin login with puzopb works; Galerija tab renders pick-before-btn + pick-after-btn (both testIDs present, count=1 each). Tapping pick-before-btn opens Modal containing picker-camera-btn ('Snimi novu fotku' + 'Otvori kameru telefona' subtext) and picker-library-btn ('Izaberi iz galerije' + 'Postojeća slika sa telefona' subtext) — verified via Playwright count=1 each. Tapping outside the sheet dismisses it (picker-camera-btn count drops to 0). Fullscreen 3-mode tabs (fullscreen-mode-slider / -before / -after) and ZoomableImage (testID fullscreen-image / fullscreen-before / fullscreen-after) are correctly wired in FullscreenImage.tsx:115-171 with pinch/pan/double-tap Gesture composed via Gesture.Simultaneous — pinch gestures are visual/native only and cannot be exercised on web, but the component contract is confirmed by static review. Note: only pre-existing 'shadow*' -> boxShadow RN Web deprecation warning still present (carried over from iter5/iter6).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "styles.fab (admin.tsx)", "issue": "React Native Web deprecation warning: 'shadow*' style props are deprecated, use 'boxShadow'. Non-blocking, carried over from previous iterations. Reference: /app/frontend/app/(tabs)/admin.tsx styles.fab"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_watermark_iter7.py",
+    "/app/test_reports/pytest/iter7.xml"
+  ],
+  "action_items": [
+    "(Optional / low priority) Migrate remaining 'shadow*' styles to 'boxShadow' to silence the RN Web deprecation warning.",
+    "(Manual QA on device) The pinch-to-zoom, pan and double-tap gestures inside fullscreen-before/-after cannot be exercised on Playwright/web — recommend a quick Expo Go run to visually confirm gestures on mobile."
+  ],
+  "critical_code_review_comments": [
+    "server.py::_watermark_bytes correctly re-encodes PNG->PNG and JPEG->JPEG based on the source content_type, and _upload_to_storage derives the file extension from the watermarked ctype (jpg vs png) — content-type normalization works end-to-end.",
+    "Watermark uses a rounded-rect black pill with amber (#FF9800) text + dark shadow — passes the bottom-right amber-pixel detection with a wide RGB tolerance.",
+    "admin.tsx GalleryAdmin correctly exposes pickerTarget state + Modal with picker-camera-btn / picker-library-btn (admin.tsx:1331-1373). Outside-tap Pressable dismisses correctly (verified in Playwright).",
+    "FullscreenImage.tsx uses isPair = !!(beforeUrl && afterUrl) to decide between mode-tab pair mode and a single zoomable image — matches spec: single-image items show no mode row and render testID='fullscreen-image'.",
+    "ZoomableImage resets scale/translate on uri change via useEffect — prevents zoom carrying across mode switches."
+  ],
+  "updated_files": ["/app/backend/tests/test_watermark_iter7.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% of testable web flows (native camera + pinch not exercisable on Playwright web)"},
+  "seed_data_creation": "Test uploaded ~6 small PNG/JPEG images to /api/admin/gallery during the run. Cleanup fixture deletes them at teardown. Gallery returns to its previous state after the run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin password: puzopb. Backend URL: EXPO_PUBLIC_BACKEND_URL from /app/frontend/.env. For watermark verification, use PIL to fetch /api/gallery/files/{fn} and scan the bottom-right ~40% x 25% region for pixels matching r>200, 100<g<200, b<80. Camera capture (picker-camera-btn) cannot be exercised on Playwright web preview — verify testID presence only. Fullscreen pinch/pan gestures also require Expo Go or a native build.",
+  "rca_of_issue": "N/A — no product defects found. All three iter-7 features (server-side watermark, camera bottom-sheet, fullscreen 3-mode tabs) are correctly implemented and verified."
+}

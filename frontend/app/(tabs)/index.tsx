@@ -93,9 +93,11 @@ export default function SlotsScreen() {
     const priceLine = settings
       ? `Cena je ${settings.price.toLocaleString("sr-RS")} ${settings.currency} po vozilu.`
       : "";
+    const url = (settings?.share_url || "").trim();
+    const linkLine = url ? ` Preuzmi aplikaciju: ${url}` : "";
     try {
       await Share.share({
-        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.`,
+        message: `Preporučujem Lumen — profesionalno čišćenje farova. ${priceLine} Zakazivanje termina direktno u aplikaciji.${linkLine}`,
       });
     } catch {}
   };
@@ -178,7 +180,7 @@ export default function SlotsScreen() {
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />
           }
           ListFooterComponent={
-            gallery && gallery.length > 0 ? (
+            gallery && gallery.length > 0 && settings?.gallery_visible !== false ? (
               <View style={styles.gallerySection} testID="home-gallery">
                 <View style={styles.galleryHeader}>
                   <Icon name="image-multiple-outline" size={18} color={colors.brandPrimary} />

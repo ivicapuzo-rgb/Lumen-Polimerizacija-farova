@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import io
 import mimetypes
 import uuid
 from pathlib import Path
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT_DIR = Path(__file__).parent
@@ -150,11 +152,15 @@ class AdminLogin(BaseModel):
 class Settings(BaseModel):
     price: int = 2500
     currency: str = "RSD"
+    share_url: str = ""
+    gallery_visible: bool = True
 
 
 class SettingsUpdate(BaseModel):
     price: Optional[int] = None
     currency: Optional[str] = None
+    share_url: Optional[str] = None
+    gallery_visible: Optional[bool] = None
 
 
 class BlockedDay(BaseModel):
@@ -187,7 +193,12 @@ async def get_settings_doc() -> Settings:
         s = Settings()
         await db.settings.insert_one({"_id": "singleton", **s.dict()})
         return s
-    return Settings(price=doc.get("price", 2500), currency=doc.get("currency", "RSD"))
+    return Settings(
+        price=doc.get("price", 2500),
+        currency=doc.get("currency", "RSD"),
+        share_url=doc.get("share_url", "") or "",
+        gallery_visible=bool(doc.get("gallery_visible", True)),
+    )
 
 
 # ============= Helpers =============
@@ -287,17 +298,83 @@ def _detect_ext(upload: UploadFile) -> str:
     return mimetypes.guess_extension(upload.content_type or "image/jpeg") or ".jpg"
 
 
+_WATERMARK_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+
+
+def _watermark_bytes(data: bytes, content_type: str) -> tuple[bytes, str]:
+    """Apply a small semi-transparent LUMEN watermark bottom-right and return (bytes, content_type)."""
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im = im.convert("RGBA")
+            w, h = im.size
+            # Font size ~ 6% of the shorter side, clamped
+            base = min(w, h)
+            font_size = max(18, min(72, int(base * 0.06)))
+            try:
+                font = ImageFont.truetype(_WATERMARK_FONT_PATH, font_size)
+            except Exception:
+                font = ImageFont.load_default()
+
+            text = "LUMEN"
+            # Measure text
+            dummy = ImageDraw.Draw(im)
+            try:
+                bbox = dummy.textbbox((0, 0), text, font=font)
+                tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            except Exception:
+                tw, th = dummy.textsize(text, font=font)
+
+            pad = max(8, int(base * 0.02))
+            x = w - tw - pad * 2
+            y = h - th - pad * 2
+
+            overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+            od = ImageDraw.Draw(overlay)
+            # subtle rounded background pill
+            radius = max(6, int(font_size * 0.4))
+            od.rounded_rectangle(
+                (x - pad, y - pad, x + tw + pad, y + th + pad),
+                radius=radius,
+                fill=(0, 0, 0, 110),
+            )
+            # Dark shadow then white text for readability
+            od.text((x + 1, y + 1), text, font=font, fill=(0, 0, 0, 200))
+            od.text((x, y), text, font=font, fill=(255, 152, 0, 235))  # amber
+
+            merged = Image.alpha_composite(im, overlay)
+
+            out = io.BytesIO()
+            ct = (content_type or "image/jpeg").lower()
+            if "png" in ct:
+                merged.save(out, format="PNG", optimize=True)
+                return out.getvalue(), "image/png"
+            # Default to JPEG (smaller)
+            merged.convert("RGB").save(out, format="JPEG", quality=85, optimize=True)
+            return out.getvalue(), "image/jpeg"
+    except Exception:
+        # If watermarking fails, return the original untouched
+        return data, content_type or "application/octet-stream"
+
+
 async def _upload_to_storage(upload: UploadFile) -> tuple[str, str]:
     data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="Prazan fajl")
     if len(data) > 8 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Slika je prevelika (maks 8MB)")
-    ext = _detect_ext(upload)
+
+    watermarked, ctype = await run_in_threadpool(_watermark_bytes, data, upload.content_type or "image/jpeg")
+
+    # Derive extension from watermarked ctype (may downgrade to jpeg)
+    ext = ".jpg"
+    if ctype == "image/png":
+        ext = ".png"
+    elif ctype == "image/jpeg":
+        ext = ".jpg"
     filename = f"{uuid.uuid4()}{ext}"
     path = f"{APP_NAME}/gallery/{filename}"
     try:
-        await run_in_threadpool(put_object, path, data, upload.content_type or "image/jpeg")
+        await run_in_threadpool(put_object, path, watermarked, ctype)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Greška pri uploadu: {e}")
     return path, f"/api/gallery/files/{filename}"
@@ -482,6 +559,10 @@ async def admin_update_settings(payload: SettingsUpdate, x_admin_password: Optio
         updates["price"] = int(payload.price)
     if payload.currency is not None:
         updates["currency"] = payload.currency.strip() or "RSD"
+    if payload.share_url is not None:
+        updates["share_url"] = payload.share_url.strip()
+    if payload.gallery_visible is not None:
+        updates["gallery_visible"] = bool(payload.gallery_visible)
     if updates:
         await db.settings.update_one({"_id": "singleton"}, {"$set": updates}, upsert=True)
     return await get_settings_doc()

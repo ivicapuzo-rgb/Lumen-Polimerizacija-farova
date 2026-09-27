@@ -1064,6 +1064,7 @@ function StatsAdmin({ password }: { password: string }) {
 
 // ============= Gallery Admin =============
 type Asset = { uri: string; name: string; mime: string };
+type PickerTarget = "before" | "after" | null;
 
 function GalleryAdmin({ password }: { password: string }) {
   const qc = useQueryClient();
@@ -1072,6 +1073,8 @@ function GalleryAdmin({ password }: { password: string }) {
   const [caption, setCaption] = useState("");
   const [before, setBefore] = useState<Asset | null>(null);
   const [after, setAfter] = useState<Asset | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
+  const insets = useSafeAreaInsets();
 
   const { data = [], refetch, isLoading } = useQuery({
     queryKey: ["admin", "gallery"],
@@ -1083,15 +1086,28 @@ function GalleryAdmin({ password }: { password: string }) {
     setItems(data);
   }, [data]);
 
-  const pickOne = async (setter: (a: Asset) => void) => {
+  const applyAsset = (target: PickerTarget, a: ImagePicker.ImagePickerAsset) => {
+    const asset: Asset = {
+      uri: a.uri,
+      name: a.fileName || `photo-${Date.now()}.jpg`,
+      mime: a.mimeType || "image/jpeg",
+    };
+    if (target === "before") setBefore(asset);
+    if (target === "after") setAfter(asset);
+  };
+
+  const pickFromLibrary = async () => {
+    const target = pickerTarget;
+    setPickerTarget(null);
+    if (!target) return;
     setError(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      if (!perm.canAskAgain) {
-        setError("Dozvola za galeriju je odbijena. Otvori podešavanja telefona.");
-      } else {
-        setError("Potrebna je dozvola za pristup galeriji.");
-      }
+      setError(
+        perm.canAskAgain
+          ? "Potrebna je dozvola za pristup galeriji."
+          : "Dozvola je odbijena. Otvori podešavanja telefona.",
+      );
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -1101,12 +1117,31 @@ function GalleryAdmin({ password }: { password: string }) {
       exif: false,
     });
     if (res.canceled || !res.assets?.length) return;
-    const a = res.assets[0];
-    setter({
-      uri: a.uri,
-      name: a.fileName || `photo-${Date.now()}.jpg`,
-      mime: a.mimeType || "image/jpeg",
+    applyAsset(target, res.assets[0]);
+  };
+
+  const pickFromCamera = async () => {
+    const target = pickerTarget;
+    setPickerTarget(null);
+    if (!target) return;
+    setError(null);
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      setError(
+        perm.canAskAgain
+          ? "Potrebna je dozvola za kameru."
+          : "Dozvola za kameru je odbijena. Otvori podešavanja.",
+      );
+      return;
+    }
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 0.7,
+      exif: false,
     });
+    if (res.canceled || !res.assets?.length) return;
+    applyAsset(target, res.assets[0]);
   };
 
   const upload = async () => {
@@ -1210,7 +1245,7 @@ function GalleryAdmin({ password }: { password: string }) {
             <Pressable
               testID="pick-before-btn"
               style={[styles.pickerCard, before && styles.pickerCardFilled]}
-              onPress={() => pickOne(setBefore)}
+              onPress={() => setPickerTarget("before")}
             >
               {before ? (
                 <Image source={before.uri} style={styles.pickerThumb} contentFit="cover" />
@@ -1224,7 +1259,7 @@ function GalleryAdmin({ password }: { password: string }) {
             <Pressable
               testID="pick-after-btn"
               style={[styles.pickerCard, after && styles.pickerCardFilled]}
-              onPress={() => pickOne(setAfter)}
+              onPress={() => setPickerTarget("after")}
             >
               {after ? (
                 <Image source={after.uri} style={styles.pickerThumb} contentFit="cover" />
@@ -1293,6 +1328,51 @@ function GalleryAdmin({ password }: { password: string }) {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={!!pickerTarget}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerTarget(null)}
+      >
+        <View style={styles.pickerOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerTarget(null)} />
+          <View style={[styles.pickerSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.grabber} />
+            <Text style={styles.pickerSheetTitle}>
+              Odaberi izvor za {pickerTarget === "before" ? "PRE" : "POSLE"}
+            </Text>
+            <Pressable
+              testID="picker-camera-btn"
+              style={styles.pickerOption}
+              onPress={pickFromCamera}
+            >
+              <View style={styles.pickerOptionIcon}>
+                <Icon name="camera-outline" size={22} color={colors.onBrandPrimary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pickerOptionTitle}>Snimi novu fotku</Text>
+                <Text style={styles.pickerOptionSub}>Otvori kameru telefona</Text>
+              </View>
+              <Icon name="chevron-right" size={20} color={colors.muted} />
+            </Pressable>
+            <Pressable
+              testID="picker-library-btn"
+              style={styles.pickerOption}
+              onPress={pickFromLibrary}
+            >
+              <View style={[styles.pickerOptionIcon, { backgroundColor: colors.surfaceTertiary }]}>
+                <Icon name="image-multiple-outline" size={22} color={colors.brandPrimary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pickerOptionTitle}>Izaberi iz galerije</Text>
+                <Text style={styles.pickerOptionSub}>Postojeća slika sa telefona</Text>
+              </View>
+              <Icon name="chevron-right" size={20} color={colors.muted} />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1315,11 +1395,21 @@ function SettingsAdmin({ password }: { password: string }) {
   const [blockErr, setBlockErr] = useState<string | null>(null);
   const [blockBusy, setBlockBusy] = useState(false);
 
+  const [shareUrl, setShareUrl] = useState("");
+  const [shareSaving, setShareSaving] = useState(false);
+  const [shareSaved, setShareSaved] = useState(false);
+  const [shareErr, setShareErr] = useState<string | null>(null);
+
+  const [galleryVisible, setGalleryVisible] = useState(true);
+  const [galleryToggleBusy, setGalleryToggleBusy] = useState(false);
+
   const load = async () => {
     try {
       const s = await getSettings();
       setSettings(s);
       setPrice(String(s.price));
+      setShareUrl(s.share_url || "");
+      setGalleryVisible(s.gallery_visible !== false);
       const b = await adminListBlocked(password);
       setBlocked(b);
     } catch {}
@@ -1359,8 +1449,10 @@ function SettingsAdmin({ password }: { password: string }) {
     } catch {}
   };
 
+  const effectiveShareUrl = (shareUrl.trim() || APP_URL);
+
   const shareQr = async () => {
-    Linking.openURL(APP_URL).catch(() => {});
+    Linking.openURL(effectiveShareUrl).catch(() => {});
   };
 
   const savePrice = async () => {
@@ -1381,6 +1473,43 @@ function SettingsAdmin({ password }: { password: string }) {
       setErr(e.message || "Greška");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveShareUrl = async () => {
+    setShareErr(null);
+    setShareSaved(false);
+    const url = shareUrl.trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      setShareErr("URL mora počinjati sa http:// ili https://");
+      return;
+    }
+    setShareSaving(true);
+    try {
+      const s = await adminUpdateSettings(password, { share_url: url });
+      setSettings(s);
+      setShareSaved(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setShareErr(e.message || "Greška");
+    } finally {
+      setShareSaving(false);
+    }
+  };
+
+  const toggleGalleryVisible = async (next: boolean) => {
+    setGalleryToggleBusy(true);
+    // optimistic
+    setGalleryVisible(next);
+    try {
+      const s = await adminUpdateSettings(password, { gallery_visible: next });
+      setSettings(s);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      setGalleryVisible(!next);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setGalleryToggleBusy(false);
     }
   };
 
@@ -1501,6 +1630,95 @@ function SettingsAdmin({ password }: { password: string }) {
         </View>
       </View>
 
+      {/* Share URL (Preporuci) */}
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="link-variant" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Link za preporuku</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Ovaj link se šalje kada klijent klikne „Preporuči“ i prikazuje se u QR kodu. Ostavi prazno da koristi automatski link iz aplikacije.
+        </Text>
+        <Text style={styles.label}>Web adresa za preuzimanje / instalaciju</Text>
+        <TextInput
+          testID="share-url-input"
+          style={[styles.priceInput, { fontSize: 15, fontWeight: "600" }]}
+          value={shareUrl}
+          onChangeText={(t) => {
+            setShareUrl(t);
+            setShareSaved(false);
+          }}
+          placeholder="https://example.com/lumen-app"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+        {shareErr ? <Text style={styles.errorInline}>{shareErr}</Text> : null}
+        {shareSaved ? <Text style={styles.successInline}>Sačuvano ✓</Text> : null}
+        <Pressable
+          testID="save-share-url-btn"
+          style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.85 }]}
+          onPress={saveShareUrl}
+          disabled={shareSaving}
+        >
+          {shareSaving ? (
+            <ActivityIndicator color={colors.onBrandPrimary} />
+          ) : (
+            <>
+              <Icon name="content-save-outline" size={18} color={colors.onBrandPrimary} />
+              <Text style={styles.saveBtnText}>Sačuvaj link</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+
+      {/* Gallery visibility toggle */}
+      <View style={styles.settingsCard}>
+        <View style={styles.settingsHeader}>
+          <Icon name="image-multiple-outline" size={22} color={colors.brandPrimary} />
+          <Text style={styles.settingsTitle}>Vidljivost galerije</Text>
+        </View>
+        <Text style={styles.settingsHint}>
+          Kada je isključeno, sekcija „Naši radovi“ je sakrivena od klijenata. Slike se ne brišu — jednim klikom vraćaš celu galeriju.
+        </Text>
+        <View style={styles.toggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.toggleLabel}>
+              {galleryVisible ? "Galerija je uključena" : "Galerija je sakrivena"}
+            </Text>
+            <Text style={styles.toggleSub}>
+              {galleryVisible
+                ? "Klijenti vide sve radove na početnoj strani."
+                : "Klijenti trenutno ne vide sekciju sa radovima."}
+            </Text>
+          </View>
+          <Pressable
+            testID="gallery-visibility-toggle"
+            onPress={() => toggleGalleryVisible(!galleryVisible)}
+            disabled={galleryToggleBusy}
+            style={[
+              styles.switchTrack,
+              galleryVisible ? styles.switchTrackOn : styles.switchTrackOff,
+              galleryToggleBusy && { opacity: 0.6 },
+            ]}
+          >
+            <View
+              style={[
+                styles.switchThumb,
+                galleryVisible ? styles.switchThumbOn : styles.switchThumbOff,
+              ]}
+            >
+              <Icon
+                name={galleryVisible ? "eye-outline" : "eye-off-outline"}
+                size={14}
+                color={galleryVisible ? colors.onBrandPrimary : colors.onSurface}
+              />
+            </View>
+          </Pressable>
+        </View>
+      </View>
+
       {/* QR code */}
       <View style={styles.settingsCard}>
         <View style={styles.settingsHeader}>
@@ -1514,13 +1732,13 @@ function SettingsAdmin({ password }: { password: string }) {
         <View style={styles.qrWrap}>
           <Image
             testID="qr-image"
-            source={qrForUrl(APP_URL)}
+            source={qrForUrl(effectiveShareUrl)}
             style={styles.qrImage}
             contentFit="cover"
           />
         </View>
         <Text style={styles.qrUrl} numberOfLines={1}>
-          {APP_URL}
+          {effectiveShareUrl}
         </Text>
         <Pressable
           testID="open-qr-btn"
@@ -1908,6 +2126,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Source picker sheet
+  pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  pickerSheet: {
+    backgroundColor: colors.surfaceSecondary,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    gap: 10,
+  },
+  pickerSheetTitle: { color: colors.onSurface, fontSize: 18, fontWeight: "800", marginBottom: 8 },
+  pickerOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pickerOptionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: colors.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerOptionTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "700" },
+  pickerOptionSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
   // Settings tab
   settingsScroll: { padding: 16, paddingBottom: 40, gap: 16 },
   settingsCard: {
@@ -2030,6 +2278,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+
+  // Toggle (switch) for gallery visibility
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  toggleLabel: { color: colors.onSurface, fontSize: 14, fontWeight: "800" },
+  toggleSub: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "600", marginTop: 2 },
+  switchTrack: {
+    width: 56,
+    height: 32,
+    borderRadius: 999,
+    padding: 3,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  switchTrackOn: { backgroundColor: colors.brandPrimary, justifyContent: "flex-end" },
+  switchTrackOff: { backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border, justifyContent: "flex-start" },
+  switchThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  switchThumbOn: { backgroundColor: colors.onBrandPrimary },
+  switchThumbOff: { backgroundColor: colors.surface },
 
   // QR
   qrWrap: {

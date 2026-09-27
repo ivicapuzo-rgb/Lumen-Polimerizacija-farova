@@ -35,6 +35,8 @@ export type Booking = {
 export type Settings = {
   price: number;
   currency: string;
+  share_url?: string;
+  gallery_visible?: boolean;
 };
 
 export type BlockedDay = { date: string };
