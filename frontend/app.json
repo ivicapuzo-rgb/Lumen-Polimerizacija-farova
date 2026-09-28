@@ -64,7 +64,8 @@
           "locationWhenInUsePermission": "Pošalji tačnu adresu za dolazak na lokaciju"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true

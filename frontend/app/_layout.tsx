@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
 import { colors } from "@/src/theme";
 import { useHeartbeat } from "@/src/hooks/useHeartbeat";
+import { UpdatePrompt } from "@/src/components/UpdatePrompt";
 
 // Prewarm icon assets so Expo Go on Android loads them reliably.
 import "@react-native-vector-icons/material-design-icons";
@@ -18,13 +19,16 @@ LogBox.ignoreAllLogs(true);
 function AppShell() {
   useHeartbeat();
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.surface },
-        animation: "slide_from_right",
-      }}
-    />
+    <>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.surface },
+          animation: "slide_from_right",
+        }}
+      />
+      <UpdatePrompt />
+    </>
   );
 }
 
