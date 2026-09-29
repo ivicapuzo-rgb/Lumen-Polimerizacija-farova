@@ -26,7 +26,7 @@ import { BeforeAfterSlider } from "@/src/components/BeforeAfterSlider";
 import { FullscreenImage } from "@/src/components/FullscreenImage";
 
 const HERO =
-  "https://images.unsplash.com/photo-1730742298439-6d82f9edc3c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHxjYXIlMjBoZWFkbGlnaHQlMjBkYXJrfGVufDB8fHx8MTc4OTI4NDIwM3ww&ixlib=rb-4.1.0&q=85";
+  "https://images..com/photo-1730742298439-6d82f9edc3c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHxjYXIlMjBoZWFkbGlnaHQlMjBkYXJrfGVufDB8fHx8MTc4OTI4NDIwM3ww&ixlib=rb-4.1.0&q=85";
 
 const DAY_NAMES = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Avg", "Sep", "Okt", "Nov", "Dec"];
