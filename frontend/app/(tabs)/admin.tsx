@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import * as Haptics from "expo-haptics";
 
@@ -1381,6 +1382,7 @@ function GalleryAdmin({ password }: { password: string }) {
 // ============= Settings Admin =============
 function SettingsAdmin({ password }: { password: string }) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [price, setPrice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1750,7 +1752,24 @@ function SettingsAdmin({ password }: { password: string }) {
         </Pressable>
       </View>
 
-
+      {/* Version manager entry */}
+      <Pressable
+        testID="open-app-version-btn"
+        onPress={() => {
+          Haptics.selectionAsync();
+          router.push("/admin/app-version");
+        }}
+        style={({ pressed }) => [styles.linkCard, pressed && { opacity: 0.85 }]}
+      >
+        <View style={styles.linkIconWrap}>
+          <Icon name="cellphone-arrow-down" size={22} color={colors.brandPrimary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.linkTitle}>Verzija aplikacije</Text>
+          <Text style={styles.linkSub}>Upravljaj APK ažuriranjem i obaveznim update-om</Text>
+        </View>
+        <Icon name="chevron-right" size={22} color={colors.muted} />
+      </Pressable>
 
       <View style={[styles.settingsCard, styles.dangerCard]}>
         <View style={styles.settingsHeader}>
@@ -2312,6 +2331,30 @@ const styles = StyleSheet.create({
   },
   switchThumbOn: { backgroundColor: colors.onBrandPrimary },
   switchThumbOff: { backgroundColor: colors.surface },
+
+  // Link card (settings → sub-screen)
+  linkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  linkIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkTitle: { color: colors.onSurface, fontSize: 15, fontWeight: "900" },
+  linkSub: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "600", marginTop: 2 },
 
   // QR
   qrWrap: {

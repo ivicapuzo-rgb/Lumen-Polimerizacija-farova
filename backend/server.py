@@ -187,6 +187,39 @@ class ReorderIn(BaseModel):
     ids: List[str]
 
 
+class AppVersion(BaseModel):
+    version: str = "1.0.0"
+    version_code: int = 1
+    apk_url: str = ""
+    notes: str = ""
+    mandatory: bool = False
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class AppVersionUpdate(BaseModel):
+    version: Optional[str] = None
+    version_code: Optional[int] = None
+    apk_url: Optional[str] = None
+    notes: Optional[str] = None
+    mandatory: Optional[bool] = None
+
+
+async def get_app_version_doc() -> AppVersion:
+    doc = await db.app_version.find_one({"_id": "singleton"})
+    if not doc:
+        v = AppVersion()
+        await db.app_version.insert_one({"_id": "singleton", **v.dict()})
+        return v
+    return AppVersion(
+        version=str(doc.get("version", "1.0.0") or "1.0.0"),
+        version_code=int(doc.get("version_code", 1) or 1),
+        apk_url=str(doc.get("apk_url", "") or ""),
+        notes=str(doc.get("notes", "") or ""),
+        mandatory=bool(doc.get("mandatory", False)),
+        updated_at=str(doc.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+    )
+
+
 async def get_settings_doc() -> Settings:
     doc = await db.settings.find_one({"_id": "singleton"})
     if not doc:
@@ -227,6 +260,11 @@ async def list_slots(only_available: bool = True):
 @api_router.get("/settings", response_model=Settings)
 async def get_settings():
     return await get_settings_doc()
+
+
+@api_router.get("/app-version", response_model=AppVersion)
+async def get_app_version():
+    return await get_app_version_doc()
 
 
 @api_router.post("/heartbeat")
@@ -566,6 +604,37 @@ async def admin_update_settings(payload: SettingsUpdate, x_admin_password: Optio
     if updates:
         await db.settings.update_one({"_id": "singleton"}, {"$set": updates}, upsert=True)
     return await get_settings_doc()
+
+
+@api_router.patch("/admin/app-version", response_model=AppVersion)
+async def admin_update_app_version(
+    payload: AppVersionUpdate,
+    x_admin_password: Optional[str] = Header(default=None),
+):
+    _check_admin(x_admin_password)
+    updates: dict = {}
+    if payload.version is not None:
+        v = payload.version.strip()
+        if not v:
+            raise HTTPException(status_code=400, detail="Verzija ne može biti prazna")
+        updates["version"] = v
+    if payload.version_code is not None:
+        if payload.version_code < 1:
+            raise HTTPException(status_code=400, detail="Kod verzije mora biti pozitivan broj")
+        updates["version_code"] = int(payload.version_code)
+    if payload.apk_url is not None:
+        url = payload.apk_url.strip()
+        if url and not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(status_code=400, detail="APK link mora počinjati sa http:// ili https://")
+        updates["apk_url"] = url
+    if payload.notes is not None:
+        updates["notes"] = payload.notes.strip()
+    if payload.mandatory is not None:
+        updates["mandatory"] = bool(payload.mandatory)
+    if updates:
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.app_version.update_one({"_id": "singleton"}, {"$set": updates}, upsert=True)
+    return await get_app_version_doc()
 
 
 @api_router.delete("/admin/bookings")

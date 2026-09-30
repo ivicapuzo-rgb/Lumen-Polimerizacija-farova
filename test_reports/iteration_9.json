@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 9 (Admin AppVersion feature) tested end-to-end. Backend: 13/13 pytest cases PASS (test_app_version_iter9.py). GET /api/app-version returns singleton doc with all 6 fields (version, version_code, apk_url, notes, mandatory, updated_at) with correct types and defaults (1.0.0/1/empty/empty/false). PATCH /api/admin/app-version with admin password puzopb: full update persists, partial patches only touch provided fields (verified other fields preserved), updated_at strictly increases across updates, http:// and https:// URLs allowed, empty apk_url allowed to clear. Validation errors: empty version -> 400 'Verzija ne može biti prazna', version_code=0 -> 400, version_code=-5 -> 400, apk_url='not-a-url' -> 400. Auth: missing/wrong x-admin-password -> 401. Frontend: Full flow works on mobile viewport (375x667). Admin tab -> password 'puzopb' -> Podešavanja tab -> scrolled to open-app-version-btn -> tap navigates to /admin/app-version. All 7 testIDs present (app-version-back-btn, app-version-version-input, app-version-code-input, app-version-apk-input, app-version-notes-input, app-version-mandatory-toggle, app-version-save-btn). Form loaded current backend values (1.0.0). Filled version=3.1.4, code=31, apk_url=https://github.com/..., notes=UI test notes; tap save -> backend confirmed via GET /api/app-version returned exactly those values with updated_at bumped, and 'Poslednja izmena' meta text updated in UI. Client-side URL validation triggered when 'not-a-url' entered. Back button returned to /admin. ApkUpdatePrompt on web preview: no visible modal, no console errors thrown from the component (only 1 unrelated ERR_NAME_NOT_RESOLVED for an external resource load). No React Native red screen. Backend state restored to defaults post-test.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_app_version_iter9.py",
+    "/app/test_reports/pytest/iter9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py AppVersion / AppVersionUpdate models correctly use Optional for update DTO; admin_update_app_version writes only keys that are not None (partial-patch semantics verified). Validation is explicit and returns 400 with Serbian messages matching the review request.",
+    "get_app_version_doc() auto-inserts singleton with defaults on first access — GET /api/app-version therefore never returns 404 even on empty DB. Also coerces types defensively (str/int/bool) so legacy docs won't crash.",
+    "admin/app-version.tsx correctly loads admin password from AsyncStorage via loadAdminPw(), guards save when password missing, strips version whitespace, sanitizes versionCode to digits only, validates https?:// URL format client-side before hitting backend. Success message auto-clears after 2.5s (intentional).",
+    "ApkUpdatePrompt correctly early-returns on Platform.OS === 'web' (line 47) — no modal shown on web preview, confirmed by manual observation. It also debounces checks (10s window) and re-checks on AppState=active + every 6h; snooze logic bypassed when mandatory=true (line 61-63) — matches spec.",
+    "api.ts adminUpdateAppVersion uses PATCH + adminHeaders and typed Partial<Omit<AppVersion,'updated_at'>> which is the correct DTO shape (updated_at is server-managed).",
+    "No MongoDB _id leakage: get_app_version_doc constructs AppVersion via explicit field extraction, so response is clean."
+  ],
+  "updated_files": ["/app/backend/tests/test_app_version_iter9.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (navigation, form load, save persistence, validation, back nav)"},
+  "seed_data_creation": "Backend app_version singleton was mutated during tests then explicitly RESTORED to defaults (version=1.0.0, version_code=1, apk_url='', notes='', mandatory=false) both via pytest module-scoped teardown fixture and a final curl PATCH after UI test. Final backend state confirmed via GET.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin password: puzopb. Backend URL from /app/frontend/.env EXPO_PUBLIC_BACKEND_URL. New endpoints: GET /api/app-version (public), PATCH /api/admin/app-version (x-admin-password header). Mongo collection: db.app_version, singleton _id='singleton'. Frontend route: /admin/app-version. TestIDs: open-app-version-btn (in admin > Settings tab), app-version-{back-btn,version-input,code-input,apk-input,notes-input,mandatory-toggle,save-btn}, apk-update-card (modal, native only), apk-update-download-btn, apk-update-later-btn. ApkUpdatePrompt is mounted globally in app/_layout.tsx and skipped on web (Platform.OS==='web' early return).",
+  "rca_of_issue": "N/A — no defects found. Feature works end-to-end per spec."
+}

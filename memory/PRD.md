@@ -13,8 +13,9 @@ Serbian-language mobile app where customers browse available slots for headlight
 3. **My Bookings** — lookup bookings by phone, see status (pending / confirmed / rejected).
 4. **Admin — Slots tab** — list all slots, add new (date+time), delete unused.
 5. **Admin — Bookings tab** — filter by status, confirm/reject pending requests. Rejecting a booking frees the slot again.
-6. **Admin — Settings tab** — dynamic price, blocked dates, custom share URL (used in "Preporuči" and QR), toggle for gallery visibility (hide/show entire "Naši radovi" section), danger-zone wipes.
-7. **Gallery** — before/after slider, pinch-zoom, drag-to-reorder, LUMEN watermark, camera + library upload, per-item delete, admin-controlled visibility.
+6. **Admin — Settings tab** — dynamic price, blocked dates, custom share URL (used in "Preporuči" and QR), toggle for gallery visibility (hide/show entire "Naši radovi" section), entry to Version Manager, danger-zone wipes.
+7. **Admin — Version Manager** — dedicated sub-screen (`/admin/app-version`) to set version string, versionCode, GitHub APK link, release notes and mandatory-update toggle. On next launch, installed apps compare local vs remote versionCode and show an in-app modal with "Preuzmi i ažuriraj" (opens the APK link) and optional "Kasnije" (hidden when mandatory).
+8. **Gallery** — before/after slider, pinch-zoom, drag-to-reorder, LUMEN watermark, camera + library upload, per-item delete, admin-controlled visibility.
 
 ## Tech
 - **Frontend**: Expo Router, React Native, Reanimated, expo-image, expo-linear-gradient, expo-haptics, @react-native-vector-icons/material-design-icons, AsyncStorage, React Query.

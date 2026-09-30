@@ -39,6 +39,15 @@ export type Settings = {
   gallery_visible?: boolean;
 };
 
+export type AppVersion = {
+  version: string;
+  version_code: number;
+  apk_url: string;
+  notes: string;
+  mandatory: boolean;
+  updated_at: string;
+};
+
 export type BlockedDay = { date: string };
 
 export type Stats = {
@@ -110,6 +119,18 @@ export const bookingsByPhone = (phone: string) =>
   request<Booking[]>(`/bookings/phone/${encodeURIComponent(phone)}`);
 
 export const getSettings = () => request<Settings>("/settings");
+
+export const getAppVersion = () => request<AppVersion>("/app-version");
+
+export const adminUpdateAppVersion = (
+  password: string,
+  payload: Partial<Omit<AppVersion, "updated_at">>,
+) =>
+  request<AppVersion>("/admin/app-version", {
+    method: "PATCH",
+    headers: adminHeaders(password),
+    body: JSON.stringify(payload),
+  });
 
 export const heartbeat = (session_id: string, role: "customer" | "admin") =>
   request<{ ok: boolean }>("/heartbeat", {

@@ -10,6 +10,7 @@ import { queryClient } from "@/src/query-client";
 import { colors } from "@/src/theme";
 import { useHeartbeat } from "@/src/hooks/useHeartbeat";
 import { UpdatePrompt } from "@/src/components/UpdatePrompt";
+import { ApkUpdatePrompt } from "@/src/components/ApkUpdatePrompt";
 
 // Prewarm icon assets so Expo Go on Android loads them reliably.
 import "@react-native-vector-icons/material-design-icons";
@@ -28,6 +29,7 @@ function AppShell() {
         }}
       />
       <UpdatePrompt />
+      <ApkUpdatePrompt />
     </>
   );
 }
