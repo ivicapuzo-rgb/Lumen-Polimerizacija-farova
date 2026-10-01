@@ -43,6 +43,7 @@ export type AppVersion = {
   version: string;
   version_code: number;
   apk_url: string;
+  electron_update_url: string;
   notes: string;
   mandatory: boolean;
   updated_at: string;

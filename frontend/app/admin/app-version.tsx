@@ -29,6 +29,7 @@ export default function AppVersionScreen() {
   const [version, setVersion] = useState("1.0.0");
   const [versionCode, setVersionCode] = useState("1");
   const [apkUrl, setApkUrl] = useState("");
+  const [electronUrl, setElectronUrl] = useState("");
   const [notes, setNotes] = useState("");
   const [mandatory, setMandatory] = useState(false);
 
@@ -47,6 +48,7 @@ export default function AppVersionScreen() {
         setVersion(v.version);
         setVersionCode(String(v.version_code));
         setApkUrl(v.apk_url);
+        setElectronUrl(v.electron_update_url || "");
         setNotes(v.notes);
         setMandatory(v.mandatory);
       } catch {}
@@ -77,6 +79,11 @@ export default function AppVersionScreen() {
       setErr("APK link mora počinjati sa http:// ili https://");
       return;
     }
+    const trimmedElectron = electronUrl.trim();
+    if (trimmedElectron && !/^https?:\/\//i.test(trimmedElectron)) {
+      setErr("Electron update link mora počinjati sa http:// ili https://");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -84,6 +91,7 @@ export default function AppVersionScreen() {
         version: trimmedVersion,
         version_code: code,
         apk_url: trimmedUrl,
+        electron_update_url: trimmedElectron,
         notes: notes.trim(),
         mandatory,
       });
@@ -194,6 +202,28 @@ export default function AppVersionScreen() {
           />
           <Text style={styles.hint}>
             Preporuka: koristi „latest/download“ putanju — kad kreneš novi release na GitHub-u, link ostaje isti.
+          </Text>
+
+          {/* Electron update URL */}
+          <Text style={styles.label}>ELECTRON UPDATE LINK (desktop app)</Text>
+          <TextInput
+            testID="app-version-electron-input"
+            style={[styles.input, styles.inputMulti]}
+            value={electronUrl}
+            onChangeText={(t) => {
+              setElectronUrl(t);
+              setSaved(false);
+            }}
+            placeholder="https://github.com/user/repo/releases/latest"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            multiline
+            numberOfLines={3}
+          />
+          <Text style={styles.hint}>
+            Link na koji desktop (Electron) aplikacija ide da proveri i preuzme novu verziju. Obično GitHub Releases stranica ili latest.yml fajl.
           </Text>
 
           {/* Notes */}
