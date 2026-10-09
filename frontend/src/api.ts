@@ -161,13 +161,35 @@ export const adminUploadGallery = async (
   form.append("caption", caption);
 
   const appendFile = async (field: string, f: { uri: string; name: string; mime: string }) => {
+    // Web / Expo Web preview — use native Blob
     if (typeof window !== "undefined" && f.uri.startsWith("blob:")) {
       const blob = await (await fetch(f.uri)).blob();
       form.append(field, blob, f.name);
-    } else {
-      // @ts-ignore RN FormData
-      form.append(field, { uri: f.uri, name: f.name, type: f.mime });
+      return;
     }
+
+    // Native (iOS/Android) with Expo SDK 54+ WinterCG fetch:
+    // the legacy { uri, name, type } object is NOT supported anymore.
+    // Use the File class from expo-file-system which exposes the
+    // required .bytes() interface. Fall back to fetch→blob if File fails
+    // (older SDKs, or weird URIs like content://).
+    try {
+      // Lazy require so Web bundles don't try to resolve native-only module.
+      const FS = require("expo-file-system");
+      if (FS && typeof FS.File === "function") {
+        const file = new FS.File(f.uri);
+        // Some versions require explicit name/type → set via properties.
+        // The internal fetch converter reads them from the File instance.
+        form.append(field, file as any, f.name);
+        return;
+      }
+    } catch {
+      // ignore and try blob
+    }
+
+    const resp = await fetch(f.uri);
+    const blob = await resp.blob();
+    form.append(field, blob, f.name);
   };
 
   await appendFile("before", beforeFile);

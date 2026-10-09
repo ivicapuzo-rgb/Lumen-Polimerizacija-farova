@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 10 — Backend verification of the gallery upload fix (frontend adminUploadGallery was failing on native with Expo SDK 54+ WinterCG fetch because the legacy {uri,name,type} FormData shape is no longer supported). Backend-only testing per request. Wrote /app/backend/tests/test_gallery_upload_iter10.py (13 tests) covering: (a) POST /api/admin/gallery with new `before` field only — 200, response has before_url=url, storage_path set, after_url=null; (b) with `before`+`after` — both URLs returned, distinct; (c) empty caption allowed; (d) legacy `file` field still accepted (backward compat); (e) validation: no file -> 400 'Slika je obavezna', empty bytes -> 400, missing/wrong x-admin-password -> 401, 9MB payload -> 400 'maks 8MB'; (f) full roundtrip: upload before+after (200x200 PNGs) → GET /api/gallery lists item → GET /api/gallery/files/{filename} returns image/* bytes for both before and after; (g) reorder PATCH + DELETE flow. All 13/13 PASS. Also re-ran pre-existing test_gallery.py and test_gallery_iter6.py: 28/28 PASS (no regression). The field-name fix on the backend side (accepting `before`, `after`, and legacy `file`) is confirmed working. Cleanup of TEST_ prefixed uploads via per-test fixtures. Frontend fix verification (expo-file-system File / blob) is out of scope for backend-only testing but code review of /app/frontend/src/api.ts lines 154-212 shows correct branching: web blob: URIs → fetch→blob, native → expo-file-system File (SDK 54+ WinterCG compatible), fallback → fetch→blob.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gallery_upload_iter10.py",
+    "/app/test_reports/pytest/iter10.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/server.py admin_upload_gallery (line 424) correctly accepts `file` (legacy), `before`, and `after` as Optional[UploadFile]; falls back to `file` when `before` is missing (line 434: before_upload = before or file). Response includes before_url/after_url/url/storage_path consistently.",
+    "_upload_to_storage enforces 8MB cap (line 404) and reads data once before watermark/upload — avoids double consumption of UploadFile.",
+    "frontend/src/api.ts adminUploadGallery handles the three cases correctly: blob: URIs on web → fetch→blob, native URIs → expo-file-system File (required by Expo SDK 54+ WinterCG fetch which no longer accepts {uri,name,type}), fallback → fetch→blob. field names are `before`/`after` which match backend contract.",
+    "No MongoDB _id leakage: gallery find queries exclude _id ({'_id': 0}) and the response is built from the typed Pydantic model."
+  ],
+  "updated_files": ["/app/backend/tests/test_gallery_upload_iter10.py"],
+  "success_rate": {"backend": "100% (13/13 new + 15/15 regression = 28/28)", "frontend": "N/A (backend-only testing per request)"},
+  "seed_data_creation": "All test uploads use TEST_ prefixed captions and are cleaned up per-test via `cleanup_ids` pytest fixture (DELETE /api/admin/gallery/{id}). No orphan rows left in db.gallery.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin password: puzopb. Gallery backend endpoints (unchanged shape): GET /api/gallery (public), POST /api/admin/gallery multipart (fields: `before` (required), `after` (optional), legacy `file` still works, `caption`), PATCH /api/admin/gallery/reorder {ids}, DELETE /api/admin/gallery/{id}, GET /api/gallery/files/{filename} (resolves across before_path/after_path/storage_path). 8MB max, server watermarks every image with amber 'LUMEN' label (returns image/jpeg or image/png). Frontend adminUploadGallery lives in /app/frontend/src/api.ts (lines 154-212) and uses expo-file-system File on native (SDK 54+).",
+  "rca_of_issue": "Original user bug: on native Android (Expo SDK 54+), FormData file uploads using the legacy {uri, name, type} dict silently sent empty bodies because WinterCG fetch no longer handles that shape. Fix (already applied in /app/frontend/src/api.ts): use `new FS.File(uri)` from expo-file-system which exposes the required `.bytes()` interface the new fetch expects, or on web use `fetch(uri).blob()`. Backend contract is unchanged and verified to accept the resulting multipart payloads with field names `before`/`after`."
+}
