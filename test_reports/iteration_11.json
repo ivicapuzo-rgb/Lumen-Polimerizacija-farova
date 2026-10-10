@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 11 — Backend-only testing of the new GitHub Releases auto-check fields on AppVersion (github_releases_url + electron_update_url). Wrote /app/backend/tests/test_app_version_iter11_github.py (26 tests across 6 classes). All 26/26 PASS when run serially. Also re-ran iter9 regression (13/13 PASS). Coverage: (a) GET /api/app-version surface — new fields `github_releases_url` and `electron_update_url` present as strings alongside legacy fields; (b) PATCH /api/admin/app-version auth — missing/wrong x-admin-password → 401; (c) github_releases_url validation — accepts https://github.com/owner/repo and https://github.com/owner/repo/releases/latest; rejects https://gitlab.com, http://github.com, random strings, with Serbian error 'GitHub link mora počinjati sa https://github.com/'; empty string and whitespace-only cleared; case-insensitive prefix check (HTTPS://GitHub.com/...) accepted; (d) electron_update_url validation — accepts http:// and https:// URLs; rejects non-URL strings → 400; empty allowed; (e) persistence — PATCH→GET round-trip preserves both URLs; partial patches do not touch other fields; full-update sets all 7 fields; clearing works; updated_at bumps on every write; (f) atomicity — a failed validation does not partially persist. NOTE on pytest-xdist: pytest.ini enables parallel workers; when running the new file in parallel on 2 workers, 2 tests race on the singleton document (both intermittently show the other worker's writes). This is purely a test-infra isolation issue — NOT a product bug — the backend writes are atomic and GET returns the latest write. Fix for CI: run app_version tests with -o addopts='' or mark the module with pytest.mark.serial. Backend singleton restored to defaults after suite via module-scoped autouse teardown.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_app_version_iter11_github.py",
+    "/app/test_reports/pytest/iter11.xml"
+  ],
+  "action_items": [
+    "Consider adding a `pytest.mark.serial` or splitting the shared pytest.ini `-n auto` so AppVersion singleton tests don't race under xdist. Not blocking — backend behaviour is correct; this is CI hygiene only."
+  ],
+  "critical_code_review_comments": [
+    "server.py AppVersion / AppVersionUpdate (lines 190-208) correctly add `github_releases_url` and `electron_update_url` as Optional[str] with sensible '' defaults, preserving partial-patch semantics.",
+    "server.py admin_update_app_version github branch (lines 641-648): strips input, validates https://github.com/ prefix case-insensitively (`gurl.lower().startswith(...)`), persists value as-submitted (preserves original casing); empty/whitespace treated as clear. Behaviour verified end-to-end.",
+    "server.py admin_update_app_version electron branch (lines 636-640): same strip + http/https prefix validation as apk_url. Correct 400 error for malformed input.",
+    "get_app_version_doc() (lines 211-226) defensively coerces both new fields to str with '' fallback, so legacy singleton docs lacking these keys won't crash GET.",
+    "No MongoDB _id leakage — AppVersion model is built via explicit field extraction in get_app_version_doc().",
+    "Note: The feature spec is 'GitHub Releases auto-check', but there is NO backend endpoint that fetches api.github.com/repos/{owner}/{repo}/releases/latest (e.g. /api/app-version/check-update). The implementation is a pure-storage change: backend only stores the GitHub URL; the actual check (fetching latest release tag_name and comparing versions) must be done client-side by the Expo app / ApkUpdatePrompt. If the intent is server-side version-comparison, that endpoint is missing. If client-side was intentional, this is a non-issue. Flagging for main agent confirmation."
+  ],
+  "updated_files": ["/app/backend/tests/test_app_version_iter11_github.py", "/app/test_reports/iteration_11.json", "/app/test_reports/pytest/iter11.xml"],
+  "success_rate": {"backend": "100% (26/26 new + 13/13 iter9 regression = 39/39)", "frontend": "N/A (backend-only testing per request)"},
+  "seed_data_creation": "Backend app_version singleton was mutated during tests and explicitly RESTORED to the pre-test snapshot via module-scoped autouse teardown fixture (version=1.0.0, version_code=1, apk_url='', electron_update_url='', github_releases_url='https://github.com/ivicapuzo-rgb/Lumen-Polimerizacija-farova/releases', notes='', mandatory=false). Final GET /api/app-version confirms restoration.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin password: puzopb. Backend URL from /app/frontend/.env (EXPO_PUBLIC_BACKEND_URL). AppVersion singleton now has 7 fields: version, version_code, apk_url, electron_update_url, github_releases_url (new, validated against 'https://github.com/' prefix case-insensitively), notes, mandatory, updated_at. PATCH /api/admin/app-version accepts any subset; empty github_releases_url clears it. No server-side endpoint fetches github.com — the auto-check logic (fetching /releases/latest and comparing tag_name vs installed version_code) must live in the Expo client (see ApkUpdatePrompt in frontend/app/_layout.tsx mount, and admin/app-version.tsx). pytest.ini has `-n auto`; use `-o addopts=''` for AppVersion tests to avoid singleton races.",
+  "rca_of_issue": "N/A — no product defects. The two intermittent failures observed under pytest-xdist parallel execution are infra-only: both workers mutate the same `db.app_version` singleton concurrently, so a worker's GET sees the other's write. Running serially (addopts=\"\") produces 26/26 PASS. Mitigation: either mark these tests serial or key the singleton per-test (not feasible since _id is fixed). Backend writes themselves are atomic and correct."
+}

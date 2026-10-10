@@ -30,6 +30,7 @@ export default function AppVersionScreen() {
   const [versionCode, setVersionCode] = useState("1");
   const [apkUrl, setApkUrl] = useState("");
   const [electronUrl, setElectronUrl] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
   const [notes, setNotes] = useState("");
   const [mandatory, setMandatory] = useState(false);
 
@@ -49,6 +50,7 @@ export default function AppVersionScreen() {
         setVersionCode(String(v.version_code));
         setApkUrl(v.apk_url);
         setElectronUrl(v.electron_update_url || "");
+        setGithubUrl(v.github_releases_url || "");
         setNotes(v.notes);
         setMandatory(v.mandatory);
       } catch {}
@@ -84,6 +86,11 @@ export default function AppVersionScreen() {
       setErr("Electron update link mora počinjati sa http:// ili https://");
       return;
     }
+    const trimmedGithub = githubUrl.trim();
+    if (trimmedGithub && !/^https:\/\/github\.com\//i.test(trimmedGithub)) {
+      setErr("GitHub link mora počinjati sa https://github.com/");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -92,6 +99,7 @@ export default function AppVersionScreen() {
         version_code: code,
         apk_url: trimmedUrl,
         electron_update_url: trimmedElectron,
+        github_releases_url: trimmedGithub,
         notes: notes.trim(),
         mandatory,
       });
@@ -144,9 +152,31 @@ export default function AppVersionScreen() {
           <View style={styles.infoCard}>
             <Icon name="information-outline" size={18} color={colors.brandPrimary} />
             <Text style={styles.infoText}>
-              Postavi novu verziju + APK link. Instalirane aplikacije će sledećim pokretanjem videti obaveštenje da postoji novija verzija.
+              Dodaj GitHub Releases link ispod i aplikacija će sama pratiti nove verzije. Ne moraš više da diraš „Kod verzije“ pri svakom release-u.
             </Text>
           </View>
+
+          {/* GitHub Releases URL - AUTO MODE */}
+          <Text style={styles.label}>GITHUB RELEASES LINK (automatski)</Text>
+          <TextInput
+            testID="app-version-github-input"
+            style={[styles.input, styles.inputMulti]}
+            value={githubUrl}
+            onChangeText={(t) => {
+              setGithubUrl(t);
+              setSaved(false);
+            }}
+            placeholder="https://github.com/ivicapuzo-rgb/Lumen-Polimerizacija-farova"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            multiline
+            numberOfLines={2}
+          />
+          <Text style={styles.hint}>
+            Aplikacija svakog pokretanja pita GitHub da li ima noviji release i sama nalazi .apk. Dovoljno je da upload-uješ novi APK na GitHub Release i svi telefoni dobiju obaveštenje.
+          </Text>
 
           {/* Version */}
           <Text style={styles.label}>VERZIJA (npr. 1.1.0)</Text>

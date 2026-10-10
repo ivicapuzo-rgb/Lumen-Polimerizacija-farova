@@ -192,6 +192,7 @@ class AppVersion(BaseModel):
     version_code: int = 1
     apk_url: str = ""
     electron_update_url: str = ""
+    github_releases_url: str = ""
     notes: str = ""
     mandatory: bool = False
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -202,6 +203,7 @@ class AppVersionUpdate(BaseModel):
     version_code: Optional[int] = None
     apk_url: Optional[str] = None
     electron_update_url: Optional[str] = None
+    github_releases_url: Optional[str] = None
     notes: Optional[str] = None
     mandatory: Optional[bool] = None
 
@@ -217,6 +219,7 @@ async def get_app_version_doc() -> AppVersion:
         version_code=int(doc.get("version_code", 1) or 1),
         apk_url=str(doc.get("apk_url", "") or ""),
         electron_update_url=str(doc.get("electron_update_url", "") or ""),
+        github_releases_url=str(doc.get("github_releases_url", "") or ""),
         notes=str(doc.get("notes", "") or ""),
         mandatory=bool(doc.get("mandatory", False)),
         updated_at=str(doc.get("updated_at") or datetime.now(timezone.utc).isoformat()),
@@ -635,6 +638,14 @@ async def admin_update_app_version(
         if eurl and not (eurl.startswith("http://") or eurl.startswith("https://")):
             raise HTTPException(status_code=400, detail="Electron update link mora počinjati sa http:// ili https://")
         updates["electron_update_url"] = eurl
+    if payload.github_releases_url is not None:
+        gurl = payload.github_releases_url.strip()
+        if gurl:
+            if not gurl.lower().startswith("https://github.com/"):
+                raise HTTPException(status_code=400, detail="GitHub link mora počinjati sa https://github.com/")
+            # Trim trailing /releases, /releases/latest etc. to a clean repo URL.
+            # Accept both plain repo and /releases paths.
+        updates["github_releases_url"] = gurl
     if payload.notes is not None:
         updates["notes"] = payload.notes.strip()
     if payload.mandatory is not None:

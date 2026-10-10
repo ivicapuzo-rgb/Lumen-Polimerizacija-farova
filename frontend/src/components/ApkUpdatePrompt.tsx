@@ -20,56 +20,150 @@ import { colors } from "@/src/theme";
 
 /**
  * Local build info for the currently installed app.
- * - Android: nativeBuildVersion returns the versionCode as a string.
- * - iOS: nativeBuildVersion returns the CFBundleVersion (build number).
  */
+function getLocalVersion(): string {
+  return (Application.nativeApplicationVersion || "").trim();
+}
+
 function getLocalVersionCode(): number {
   const raw = (Application.nativeBuildVersion || "").trim();
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : 0;
 }
 
-function getLocalVersion(): string {
-  return (Application.nativeApplicationVersion || "").trim();
+/**
+ * Parse a semantic version string into a comparable number tuple.
+ * "1.2.3" -> [1,2,3], "v1.2" -> [1,2,0], "1.2.3-beta" -> [1,2,3]
+ */
+function parseSemver(input: string): [number, number, number] {
+  if (!input) return [0, 0, 0];
+  const cleaned = input.replace(/^v/i, "").split(/[-+]/)[0]; // strip prerelease/build
+  const parts = cleaned.split(".");
+  const nums: number[] = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const n = parseInt((parts[i] || "0").replace(/\D/g, ""), 10);
+    nums[i] = Number.isFinite(n) ? n : 0;
+  }
+  return [nums[0], nums[1], nums[2]];
 }
 
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // re-check every 6h while app is open
+function semverGt(a: string, b: string): boolean {
+  const [a1, a2, a3] = parseSemver(a);
+  const [b1, b2, b3] = parseSemver(b);
+  if (a1 !== b1) return a1 > b1;
+  if (a2 !== b2) return a2 > b2;
+  return a3 > b3;
+}
+
+/**
+ * Convert any GitHub Releases URL (plain repo, /releases, /releases/latest, ...)
+ * into the API endpoint for the latest release.
+ */
+function toLatestReleaseApi(input: string): string | null {
+  if (!input) return null;
+  const m = input.match(/github\.com\/([^/]+)\/([^/#?]+)/i);
+  if (!m) return null;
+  const owner = m[1];
+  const repo = m[2].replace(/\.git$/i, "");
+  return `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+}
+
+type GitHubAsset = { name: string; browser_download_url: string; size: number };
+type GitHubRelease = {
+  tag_name: string;
+  name?: string;
+  body?: string;
+  prerelease?: boolean;
+  draft?: boolean;
+  assets: GitHubAsset[];
+};
+
+type UpdateInfo = {
+  version: string;
+  notes: string;
+  apkUrl: string;
+  mandatory: boolean;
+};
+
+const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // every 6h while app is open
 let lastCheckAt = 0;
 
 export function ApkUpdatePrompt() {
-  const [remote, setRemote] = useState<AppVersion | null>(null);
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [snoozed, setSnoozed] = useState(false); // user pressed "Later" this session
+  const [snoozed, setSnoozed] = useState(false);
 
   const check = useCallback(async () => {
-    // Skip on web preview — APK flow is Android-only.
     if (Platform.OS === "web") return;
 
     const now = Date.now();
-    if (now - lastCheckAt < 10_000) return; // debounce back-to-back triggers
+    if (now - lastCheckAt < 10_000) return; // debounce
     lastCheckAt = now;
 
     try {
-      const v = await getAppVersion();
-      setRemote(v);
-      const localCode = getLocalVersionCode();
-      const hasNewer = v.version_code > 0 && localCode > 0 && v.version_code > localCode;
-      const hasApk = !!(v.apk_url && v.apk_url.trim());
-      if (hasNewer && hasApk) {
-        // Mandatory update ignores snooze.
-        if (v.mandatory || !snoozed) {
-          setVisible(true);
+      const cfg: AppVersion = await getAppVersion();
+
+      // === MODE 1: GitHub Releases auto-poll ===========================
+      // If an admin pasted a GitHub repo URL, prefer that: fetch the
+      // latest release directly from GitHub and auto-pick the first .apk
+      // asset. No need for the admin to bump version_code manually.
+      const api = toLatestReleaseApi(cfg.github_releases_url || "");
+      if (api) {
+        try {
+          const res = await fetch(api, {
+            headers: { Accept: "application/vnd.github+json" },
+          });
+          if (res.ok) {
+            const r: GitHubRelease = await res.json();
+            if (r && !r.draft && !r.prerelease) {
+              const localV = getLocalVersion();
+              const remoteV = (r.tag_name || "").replace(/^v/i, "");
+              if (remoteV && semverGt(remoteV, localV)) {
+                const apk = (r.assets || []).find((a) =>
+                  a.name.toLowerCase().endsWith(".apk"),
+                );
+                if (apk && apk.browser_download_url) {
+                  setInfo({
+                    version: remoteV,
+                    notes: (r.body || "").trim(),
+                    apkUrl: apk.browser_download_url,
+                    mandatory: !!cfg.mandatory,
+                  });
+                  if (cfg.mandatory || !snoozed) setVisible(true);
+                  return;
+                }
+              }
+            }
+          }
+        } catch {
+          // GitHub rate-limit or offline — silently fall through to admin-driven mode
         }
-      } else {
-        setVisible(false);
       }
+
+      // === MODE 2: Admin-driven version_code + apk_url =================
+      const localCode = getLocalVersionCode();
+      const hasNewer =
+        cfg.version_code > 0 && localCode > 0 && cfg.version_code > localCode;
+      const hasApk = !!(cfg.apk_url && cfg.apk_url.trim());
+      if (hasNewer && hasApk) {
+        setInfo({
+          version: cfg.version,
+          notes: cfg.notes || "",
+          apkUrl: cfg.apk_url,
+          mandatory: !!cfg.mandatory,
+        });
+        if (cfg.mandatory || !snoozed) setVisible(true);
+        return;
+      }
+
+      // No update available
+      setVisible(false);
     } catch {
-      // silent — do not break the app
+      // silent — never crash the app for a background check
     }
   }, [snoozed]);
 
-  // Initial check + on foreground
   useEffect(() => {
     check();
     const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
@@ -83,27 +177,25 @@ export function ApkUpdatePrompt() {
   }, [check]);
 
   const openApk = async () => {
-    if (!remote?.apk_url) return;
+    if (!info?.apkUrl) return;
     setBusy(true);
     try {
-      const supported = await Linking.canOpenURL(remote.apk_url);
-      if (supported) await Linking.openURL(remote.apk_url);
+      const supported = await Linking.canOpenURL(info.apkUrl);
+      if (supported) await Linking.openURL(info.apkUrl);
     } catch {
       // ignore
     } finally {
       setBusy(false);
-      // Keep modal open — Android will show a download in the notification tray
-      // and the user needs to tap the file to install.
     }
   };
 
   const later = () => {
-    if (remote?.mandatory) return;
+    if (info?.mandatory) return;
     setSnoozed(true);
     setVisible(false);
   };
 
-  if (!remote) return null;
+  if (!info) return null;
 
   const localVersion = getLocalVersion() || "?";
 
@@ -112,7 +204,7 @@ export function ApkUpdatePrompt() {
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={remote.mandatory ? undefined : later}
+      onRequestClose={info.mandatory ? undefined : later}
     >
       <View style={styles.backdrop}>
         <View style={styles.card} testID="apk-update-card">
@@ -120,15 +212,15 @@ export function ApkUpdatePrompt() {
             <Icon name="cellphone-arrow-down" size={34} color={colors.onBrandPrimary} />
           </View>
           <Text style={styles.title}>
-            {remote.mandatory ? "Obavezno ažuriranje" : "Dostupna je nova verzija"}
+            {info.mandatory ? "Obavezno ažuriranje" : "Dostupna je nova verzija"}
           </Text>
           <Text style={styles.subtitle}>
-            {`Trenutno: ${localVersion} → Novo: ${remote.version}`}
+            {`Trenutno: ${localVersion} → Novo: ${info.version}`}
           </Text>
 
-          {remote.notes ? (
+          {info.notes ? (
             <ScrollView style={styles.notesBox} contentContainerStyle={{ padding: 12 }}>
-              <Text style={styles.notesText}>{remote.notes}</Text>
+              <Text style={styles.notesText}>{info.notes}</Text>
             </ScrollView>
           ) : null}
 
@@ -148,7 +240,7 @@ export function ApkUpdatePrompt() {
             )}
           </Pressable>
 
-          {!remote.mandatory ? (
+          {!info.mandatory ? (
             <Pressable
               testID="apk-update-later-btn"
               style={styles.secondaryBtn}
