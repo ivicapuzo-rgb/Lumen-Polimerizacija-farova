@@ -89,6 +89,58 @@ export default function SlotsScreen() {
     router.push({ pathname: "/booking/[slotId]", params: { slotId: slot.id, date: slot.date, time: slot.time } });
   };
 
+  // Shared gallery block — rendered both inside the FlatList footer (when
+  // there are slots) and inside the empty state (when there are no slots)
+  // so clients always see "Naši radovi" if the admin has posted images.
+  const GalleryBlock = () => {
+    if (!gallery || gallery.length === 0) return null;
+    if (settings?.gallery_visible === false) return null;
+    return (
+      <View style={styles.gallerySection} testID="home-gallery">
+        <View style={styles.galleryHeader}>
+          <Icon name="image-multiple-outline" size={18} color={colors.brandPrimary} />
+          <Text style={styles.galleryTitle}>Naši radovi</Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 10, paddingRight: 4 }}
+        >
+          {gallery.map((g) => {
+            const hasPair = !!(g.before_url && g.after_url);
+            return (
+              <Pressable
+                key={g.id}
+                testID={`gallery-${g.id}`}
+                onPress={() => setPreview(g)}
+                style={styles.galleryCard}
+              >
+                {hasPair ? (
+                  <BeforeAfterSlider
+                    beforeUrl={galleryImageUrl(g.before_url!)}
+                    afterUrl={galleryImageUrl(g.after_url!)}
+                    height={160}
+                  />
+                ) : (
+                  <Image
+                    source={galleryImageUrl(g.before_url || g.url)}
+                    style={styles.galleryImg}
+                    contentFit="cover"
+                  />
+                )}
+                {g.caption ? (
+                  <Text style={styles.galleryCap} numberOfLines={2}>
+                    {g.caption}
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
   const handleShare = async () => {
     const priceLine = settings
       ? `Cena je ${settings.price.toLocaleString("sr-RS")} ${settings.currency} po vozilu.`
@@ -170,6 +222,7 @@ export default function SlotsScreen() {
           </View>
           <Text style={styles.emptyTitle}>Trenutno nema slobodnih termina</Text>
           <Text style={styles.emptySub}>Proveri malo kasnije — novi termini se često dodaju.</Text>
+          <GalleryBlock />
         </ScrollView>
       ) : (
         <FlatList
@@ -179,52 +232,7 @@ export default function SlotsScreen() {
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.brandPrimary} />
           }
-          ListFooterComponent={
-            gallery && gallery.length > 0 && settings?.gallery_visible !== false ? (
-              <View style={styles.gallerySection} testID="home-gallery">
-                <View style={styles.galleryHeader}>
-                  <Icon name="image-multiple-outline" size={18} color={colors.brandPrimary} />
-                  <Text style={styles.galleryTitle}>Naši radovi</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 10, paddingRight: 4 }}
-                >
-                  {gallery.map((g) => {
-                    const hasPair = !!(g.before_url && g.after_url);
-                    return (
-                      <Pressable
-                        key={g.id}
-                        testID={`gallery-${g.id}`}
-                        onPress={() => setPreview(g)}
-                        style={styles.galleryCard}
-                      >
-                        {hasPair ? (
-                          <BeforeAfterSlider
-                            beforeUrl={galleryImageUrl(g.before_url!)}
-                            afterUrl={galleryImageUrl(g.after_url!)}
-                            height={160}
-                          />
-                        ) : (
-                          <Image
-                            source={galleryImageUrl(g.before_url || g.url)}
-                            style={styles.galleryImg}
-                            contentFit="cover"
-                          />
-                        )}
-                        {g.caption ? (
-                          <Text style={styles.galleryCap} numberOfLines={2}>
-                            {g.caption}
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null
-          }
+          ListFooterComponent={<GalleryBlock />}
           renderItem={({ item }) => {
             const f = formatDate(item.date);
             return (
@@ -368,7 +376,7 @@ const styles = StyleSheet.create({
   },
   slotCardPressed: { backgroundColor: colors.brandTertiary, borderColor: colors.brandPrimary },
   slotTime: { color: colors.onSurface, fontSize: 15, fontWeight: "700" },
-  emptyContainer: { flexGrow: 1, alignItems: "center", justifyContent: "center", padding: 40 },
+  emptyContainer: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", paddingHorizontal: 20, paddingTop: 40, paddingBottom: 24 },
   emptyIconWrap: {
     width: 88,
     height: 88,
@@ -379,5 +387,5 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: { color: colors.onSurface, fontSize: 18, fontWeight: "700", textAlign: "center" },
-  emptySub: { color: colors.muted, fontSize: 14, marginTop: 6, textAlign: "center" },
+  emptySub: { color: colors.muted, fontSize: 14, marginTop: 6, marginBottom: 28, textAlign: "center" },
 });
